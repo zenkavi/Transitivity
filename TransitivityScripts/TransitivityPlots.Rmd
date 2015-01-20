@@ -1,0 +1,444 @@
+Visualizing group differences in intransitivity
+========================================================
+
+```{r echo =FALSE, warning=FALSE, message=FALSE}
+load("~/Dropbox/CDS/Transitivity/TransitivitySOMWorkSpace033114.RData")
+options(digits=3)
+library(lme4)
+library(ggplot2)
+library(plyr)
+library(LMERConvenienceFunctions)
+```
+
+#### Problem: How to visualize the difference in intransitivities between groups. (i.e. how to visualize the Kruskal Wallis test). 
+
+As a reminder the Kruskal Wallis test and the following Wilcoxon rank sum test show the significant group differences.
+
+Note that this is still *not* a paired test (i.e. measures are not from same sample in different conditions)
+
+```{r}
+kruskal.test(CleanPercentIntr ~ as.factor(Group), data=Intransitive)
+
+pairwise.wilcox.test(Intransitive$CleanPercentIntr, Intransitive$Group)
+```
+
+Typically this is done by using boxplots.
+
+Trying a boxplot on our aggregate data using the (Clean - timed out trials removed) Percent of Intransitivies per person as DV.
+
+```{r}
+ggplot(data = Intransitive, aes(x = Group, y = CleanPercentIntr))+
+  geom_boxplot()+
+  theme_classic()
+```
+
+Even excluding the outliers:
+
+```{r}
+ggplot(data = Intransitive[Intransitive$CleanPercentIntr < 12,], aes(x = Group, y = CleanPercentIntr))+
+  geom_boxplot()+
+  theme_classic()
+```
+
+**The large overlaps in ranges make it difficult to detect the differences at first glance.**
+
+#### Try 1: Does Wilcox rank sum test provide confidence intervals
+
+The function wilcox.test has a "conf.int" argument. But it can only compare two groups at a time. So the data needs to be subsetted to pass to this function.
+
+```{r}
+#Compare MTL and C groups
+wilcox.test(CleanPercentIntr ~ Group, data = Intransitive[Intransitive$Group != "ETP",], conf.int = T)
+#Compare ETL and C groups
+wilcox.test(CleanPercentIntr ~ Group, data = Intransitive[Intransitive$Group != "MTL",], conf.int = T)
+#Compare MTL and ETL groups
+wilcox.test(CleanPercentIntr ~ Group, data = Intransitive[Intransitive$Group != "C",], conf.int = T)
+```
+
+As clarified in the help for wilcox.test function changing the conf.int argument to true "in the two-sample case the estimator for the difference in location parameters does not estimate the difference in medians (a common misconception) but rather the median of the difference between a sample from x and a sample from y."
+
+So it is unclear (to me) how these can be converted in to CIs that we can use for plots.
+
+#### Try 2: Bootstrapping the median and plotting standard errors (subject level)
+
+```{r}
+set.seed(123)
+
+#function which will bootstrap the standard error of the median
+b.median <- function(data, num) {
+    resamples <- lapply(1:num, function(i) sample(data, replace=T))
+    r.median <- sapply(resamples, median)
+    std.err <- sqrt(var(r.median))
+    list(std.err=std.err, resamples=resamples, medians=r.median)   
+}
+
+#generating the data to be used (percentages of intransitivities for each group)
+intr.mtl <- Intransitive$PercentIntr[Intransitive$Group == "MTL"]
+intr.etp <- Intransitive$PercentIntr[Intransitive$Group == "ETP"]
+intr.c <- Intransitive$PercentIntr[Intransitive$Group == "C"]
+
+#saving the results of the function b.median in the object b1
+b.mtl <- b.median(intr.mtl, 1000)
+b.etp <- b.median(intr.etp, 1000)
+b.c <- b.median(intr.c, 1000)
+
+#displaying the first of the 30 bootstrap samples
+# b.mtl$resamples[1]
+
+#displaying the standard error
+b.mtl$std.err
+b.etp$std.err
+b.c$std.err
+
+#displaying the histogram of the distribution of medians
+# hist(b.mtl$medians)
+# hist(b.etp$medians)
+# hist(b.c$medians)
+
+# summary(b.mtl$medians)
+# summary(b.etp$medians)
+# summary(b.c$medians)
+
+median.intr <- aggregate(PercentIntr ~ Group, data= Intransitive, median)
+median.intr$se <- rep(NA, 3)
+median.intr$se[median.intr$Group == "C"] <- b.c$std.err
+median.intr$se[median.intr$Group == "ETP"] <- b.etp$std.err
+median.intr$se[median.intr$Group == "MTL"] <- b.mtl$std.err
+levels(median.intr$Group) <- c("C", "ETL", "MTL")
+
+limits <- aes(ymax = PercentIntr + se, ymin= PercentIntr - se)
+ggplot(data= median.intr, aes(x = Group, y = PercentIntr)) +
+  geom_point() +
+  geom_errorbar(limits, position = "dodge") +
+  theme_classic() +
+  xlab("") +
+  ylab("Percentage of Intransitivities") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold")) + 
+  ylim(0, 7)
+```
+
+#### Try 3: Bootstrapping the median and creating confidence intervals (subject level)
+
+```{r}
+
+#Confidence intervals
+#Order medians
+medians.mtl <- b.mtl$medians
+medians.mtl <- medians.mtl[order(medians.mtl)]
+medians.etp <- b.etp$medians
+medians.etp <- medians.etp[order(medians.etp)]
+medians.c <- b.c$medians
+medians.c <- medians.c[order(medians.c)]
+
+#Add 2.5th and 97.5 percentile
+median.intr$ci.low[median.intr$Group == "C"] <- medians.c[25]
+median.intr$ci.low[median.intr$Group == "MTL"] <- medians.mtl[25]
+median.intr$ci.low[median.intr$Group == "ETL"] <- medians.etp[25]
+
+median.intr$ci.high[median.intr$Group == "C"] <- medians.c[975]
+median.intr$ci.high[median.intr$Group == "MTL"] <- medians.mtl[975]
+median.intr$ci.high[median.intr$Group == "ETL"] <- medians.etp[975]
+
+ggplot(data= median.intr, aes(x = Group, y = PercentIntr, ymin = ci.low, ymax= ci.high)) +
+  geom_point() +
+  theme_classic() +
+  geom_errorbar() +
+  xlab("") +
+  ylab("Percentage of Intransitivities") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold")) + 
+  ylim(0, 8)
+```
+
+#### Try 4: Triplet level raw data 
+
+Darker top right sqaure indicates more intransitive triplets for the MTL group but it is a rather ugly graph and hard to quantify anything on it.
+
+```{r}
+g1 <- ggplot(data=all[all$Err == 0,], aes(x=Group, y=Intrans, group = Group))+
+  geom_boxplot()+
+  geom_jitter()+
+  theme_classic()
+g1
+```
+
+#### Try 5: Triplet level model based plot manually calculating CIs from coefficients
+
+The simplest multilevel model using intransitivities as DV without inflating the number is on triplet level including random intercepts for subjects and slopes for groups (main effect).
+
+DV: Probability of a triplet being involved in intransitivity (multiplied by 100 for ease of reading)
+
+Problem: Though the ETL vs MTL difference is significant there is still overlap
+
+```{r}
+all$Group <- as.factor(all$Group)
+#Subset triplets without any timed out trials to avoid problems later w the confint function
+b1.data <- all[all$Err == 0,]
+b1 <- lmer(Intrans ~ (1 | f.id) + Group ,data = b1.data, family = binomial(link = "logit"))
+summary(b1)
+
+#Manually calculate coefficients and confidence intervals for plot
+b1.coef <- as.data.frame(cbind(fixef(b1), confint.merMod(b1, method = "Wald")))
+names(b1.coef) <- c("fixef", "ci.low", "ci.high")
+b1.coef$p <- rep(NA, 3)
+b1.coef$ymin <- rep(NA, 3)
+b1.coef$ymax <- rep(NA, 3)
+b1.coef$p[1] <- exp(b1.coef$fixef[1])/(1+exp(b1.coef$fixef[1]))
+b1.coef$p[2] <- exp(b1.coef$fixef[1] + b1.coef$fixef[2])/(1+exp(b1.coef$fixef[1] + b1.coef$fixef[2]))
+b1.coef$p[3] <- exp(b1.coef$fixef[1] + b1.coef$fixef[3])/(1+exp(b1.coef$fixef[1] + b1.coef$fixef[3]))
+b1.coef$ymin[1] <- exp(b1.coef$ci.low[1])/(1+exp(b1.coef$ci.low[1]))
+b1.coef$ymax[1] <- exp(b1.coef$ci.high[1])/(1+exp(b1.coef$ci.high[1]))
+b1.coef$ymin[2] <- exp(b1.coef$fixef[1] + b1.coef$ci.low[2])/(1+exp(b1.coef$fixef[1] + b1.coef$ci.low[2]))
+b1.coef$ymax[2] <- exp(b1.coef$fixef[1] + b1.coef$ci.high[2])/(1+exp(b1.coef$fixef[1] + b1.coef$ci.high[2]))
+b1.coef$ymin[3] <- exp(b1.coef$fixef[1] + b1.coef$ci.low[3])/(1+exp(b1.coef$fixef[1] + b1.coef$ci.low[3]))
+b1.coef$ymax[3] <- exp(b1.coef$fixef[1] + b1.coef$ci.high[3])/(1+exp(b1.coef$fixef[1] + b1.coef$ci.high[3]))
+
+b1.coef$Group <- as.factor(c("C", "ETL", "MTL"))
+
+#Model based plot
+ggplot(data= b1.coef, aes(x = Group, y = p*100, ymin = ymin*100, ymax= ymax*100)) +
+  geom_point() +
+  theme_classic() +
+  geom_errorbar(ymin = b1.coef$ymin*100, ymax = b1.coef$ymax*100) +
+  xlab("") +
+  ylab("P of Intransitivity of a triplet") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold"))+
+  ylim(0,8)
+```
+
+#### Try 6: Triplet level model based plot manually calculating CIs from coefficients changing the baseline comparison group to ETL from C 
+
+DV: Probability of intransitive triplet (multiplied by 100)
+
+Problem: Why lmer estimates different standard errors for groups remains unclear.
+
+```{r}
+
+#Changing the group variables contrast to make baseline comparisons to the ETL group
+contrast.etp <- matrix(data = c(1,0,0,0,0,1), nrow = 3, ncol = 2, byrow = T, dimnames = list(c("C", "ETP", "MTL"), c("C", "MTL")))
+
+b1.data.2 <- b1.data
+contrasts(b1.data.2$Group) <- contrast.etp
+b1.2 <- lmer(Intrans ~ (1 | f.id) + Group ,data = b1.data.2, family = binomial(link = "logit"))
+summary(b1.2)
+
+
+b1.2.coef <- as.data.frame(cbind(fixef(b1.2), confint.merMod(b1.2, method = "Wald")))
+names(b1.2.coef) <- c("fixef", "ci.low", "ci.high")
+b1.2.coef$p <- rep(NA, 3)
+b1.2.coef$ymin <- rep(NA, 3)
+b1.2.coef$ymax <- rep(NA, 3)
+b1.2.coef$p[1] <- exp(b1.2.coef$fixef[1])/(1+exp(b1.2.coef$fixef[1]))
+b1.2.coef$p[2] <- exp(b1.2.coef$fixef[1] + b1.2.coef$fixef[2])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$fixef[2]))
+b1.2.coef$p[3] <- exp(b1.2.coef$fixef[1] + b1.2.coef$fixef[3])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$fixef[3]))
+b1.2.coef$ymin[1] <- exp(b1.2.coef$ci.low[1])/(1+exp(b1.2.coef$ci.low[1]))
+b1.2.coef$ymax[1] <- exp(b1.2.coef$ci.high[1])/(1+exp(b1.2.coef$ci.high[1]))
+b1.2.coef$ymin[2] <- exp(b1.2.coef$fixef[1] + b1.2.coef$ci.low[2])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$ci.low[2]))
+b1.2.coef$ymax[2] <- exp(b1.2.coef$fixef[1] + b1.2.coef$ci.high[2])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$ci.high[2]))
+b1.2.coef$ymin[3] <- exp(b1.2.coef$fixef[1] + b1.2.coef$ci.low[3])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$ci.low[3]))
+b1.2.coef$ymax[3] <- exp(b1.2.coef$fixef[1] + b1.2.coef$ci.high[3])/(1+exp(b1.2.coef$fixef[1] + b1.2.coef$ci.high[3]))
+
+b1.2.coef$Group <- as.factor(c("ETL", "C", "MTL"))
+
+#Model based
+ggplot(data= b1.2.coef, aes(x = Group, y = p*100, ymin = ymin*100, ymax= ymax*100)) +
+  geom_point() +
+  theme_classic() +
+  geom_errorbar(ymin = b1.2.coef$ymin*100, ymax = b1.2.coef$ymax*100) +
+  xlab("") +
+  ylab("Probability of intransitive triplet (%)") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=12,face="bold"))+
+  ylim(0,8)
+
+```
+
+#### Try 7: Triplet level model based plot using built in function and C as baseline comparison group
+
+DV: Probability of intransitive triplet (converted coefficients).
+
+Problem: Can't add CIs or standard errors.
+
+```{r}
+plotLMER.fnc(b1, pred = "Group", fun = plogis, ylimit = c(0, 0.07), cex = 0.9, xlabel = "", addlines = T)
+```
+
+#### Try 8: Triplet level means and standard errors
+
+DV: Mean probability of intransitive triplet
+
+Problem: Difference between the C and ETL groups appears very large too
+
+```{r}
+Group<-as.factor(c("C", "ETL", "MTL"))
+se<-tapply(all$Intrans[all$Err == 0],all$Group[all$Err == 0],sd)/sqrt(tapply(all$Intrans[all$Err == 0],all$Group[all$Err == 0],length))
+mn<-tapply(all$Intrans[all$Err == 0],all$Group[all$Err == 0],mean)
+semax<-mn+se
+semin<-mn-se
+dat<-data.frame(cbind(Group,mn,semax,semin))
+dat$Group <- c("C", "ETL", "MTL")
+
+ggplot(dat, aes(as.factor(Group), mn))+
+  geom_point()+
+  geom_errorbar(aes(ymin=semin,ymax=semax,width=.25)) +
+  xlab("")+
+  ylab("Mean probability of intransitive triplet")+
+  theme_classic()+
+  ylim(0,0.1)
+
+```
+
+#### Try 9: Subject level means and standard errors 
+
+DV: Mean percentage of intransitivities
+
+Problem: Difference between the C and ETL groups appears very large too
+
+```{r}
+
+Group<-factor(c("C", "ETL", "MTL"))
+se<-tapply(Intransitive$CleanPercentIntr, Intransitive$Group, sd)/tapply(Intransitive$CleanPercentIntr, Intransitive$Group, length)
+mn<-tapply(Intransitive$CleanPercentIntr, Intransitive$Group, mean)
+semax<-mn+se
+semin<-mn-se
+dat<-data.frame(cbind(Group,mn,semax,semin))
+dat$Group <- c("C", "ETL", "MTL")
+
+ggplot(dat, aes(Group, mn))+
+  geom_point()+
+  geom_errorbar(aes(ymin=semin,ymax=semax,width=.25)) +
+  xlab("")+
+  ylab("Mean Percent of Intransitivities")+
+  theme_classic()+
+  ylim(0,7)
+````
+
+#### Try 10: Correct way to manually estimate CIs from multilevel model (using C as baseline comparison group)
+
+DV: Probability of intransitive triplet. Exponentiated coefficients for ease of reading.
+
+Using the fixed effects only doesn't look bad. 
+
+```{r}
+
+newdat <- expand.grid(
+    Group=c("C","ETL", "MTL")
+    , Intrans = 0
+)
+
+mm <- model.matrix(terms(b1),newdat)
+
+newdat$Intrans <- mm %*% fixef(b1)
+
+pvar1 <- diag(mm %*% tcrossprod(vcov(b1),mm))
+
+tvar1 <- pvar1+VarCorr(b1)$f.id[1]  ## must be adapted for more complex models
+
+newdat <- data.frame(
+    newdat
+    , plo = newdat$Intrans-2*sqrt(pvar1)
+    , phi = newdat$Intrans+2*sqrt(pvar1)
+    , tlo = newdat$Intrans-2*sqrt(tvar1)
+    , thi = newdat$Intrans+2*sqrt(tvar1)
+)
+
+#Converted coefs (remove exp otherwise)
+
+#plot confidence
+g0 <- ggplot(newdat, aes(x=Group, y=exp(Intrans)))
+
+g0 + geom_point()+
+  geom_errorbar(aes(ymin = exp(plo), ymax = exp(phi), width = 0.25))+
+  labs(title="CI based on fixed-effects uncertainty ONLY")+
+  theme_classic()
+```  
+
+Because there are large individual differences too adding the random effects makes it harder to read.
+
+I believe this is related to the design question on how to analyze repeated measures between subjects data. 
+
+```{r}
+#plot prediction
+g0 + geom_errorbar(aes(ymin = exp(tlo), ymax = exp(thi), width = 0.25))+
+    labs(title="CI based on FE uncertainty + RE variance")+
+  theme_classic()
+
+```
+
+#### Try 11: Correct way to manually estimate CIs from multilevel model (using ETL as baseline comparison group)
+
+Again shows the difference in the standard errors when the baseline group comparison is changed.
+
+```{r}
+newdat <- expand.grid(
+    Group=c("C","ETL", "MTL")
+    , Intrans = 0
+)
+
+mm <- model.matrix(terms(b1.2),newdat)
+
+newdat$Intrans <- mm %*% fixef(b1.2)
+
+pvar1 <- diag(mm %*% tcrossprod(vcov(b1.2),mm))
+
+tvar1 <- pvar1+VarCorr(b1.2)$f.id[1]  ## must be adapted for more complex models
+
+newdat <- data.frame(
+    newdat
+    , plo = newdat$Intrans-2*sqrt(pvar1)
+    , phi = newdat$Intrans+2*sqrt(pvar1)
+    , tlo = newdat$Intrans-2*sqrt(tvar1)
+    , thi = newdat$Intrans+2*sqrt(tvar1)
+)
+
+#Converted coefs (remove exp otherwise)
+
+#plot confidence
+g0 <- ggplot(newdat, aes(x=Group, y=exp(Intrans)))
+
+g0 + geom_point()+
+  geom_errorbar(aes(ymin = exp(plo), ymax = exp(phi), width = 0.25))+
+  labs(title="CI based on fixed-effects uncertainty ONLY")+
+  theme_classic()
+```  
+
+Same issues with including random effect variance.
+
+```{r}
+#plot prediction
+g0 + geom_errorbar(aes(ymin = exp(tlo), ymax = exp(thi), width = 0.25))+
+    labs(title="CI based on FE uncertainty + RE variance")+
+  theme_classic()
+```
+
+#### Try 12: Bar graph and then the overlapping differences test based on the multi-level model  
+
+```{r}
+
+mean.cleanintr <- as.data.frame(tapply(Intransitive$CleanPercentIntr, Intransitive$Group, mean))
+names(mean.cleanintr) <- c("meanCleanIntr")
+#Done from b1 MAKE SURE TO CHANGE IF KNITTING
+# mean.cleanintr$expplo <- exp(newdat$plo)
+# mean.cleanintr$expphi <- exp(newdat$phi)
+mean.cleanintr$Group <- as.factor(c("C", "ETL", "MTL"))
+g <- ggplot(data = mean.cleanintr)+
+  geom_bar(aes(x = Group, y = meanCleanIntr), stat = "identity", width = 0.5, fill = I("grey50"))+
+  theme_classic()+
+  xlab("")+
+  ylab("Mean Perentage of Intransitivies")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,7.5))
+
+geom.path.df <- data.frame(x = c(1,1,2,2, 2,2,3,3, 1,1,3,3), y = c(mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "ETL"] + 0.15, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "ETL"] + 0.25, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "ETL"] + 0.25, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "ETL"] + 0.15,
+                           mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.15, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.25, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.25, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.15,
+mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.60, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.75, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.75, mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.60))
+
+g + annotate("text",x=1.5,y= mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "ETL"] + 0.5,label="p = 0.148") +
+  annotate("text",x=2.5,y= mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 0.5,label="p = 0.004**")+
+  annotate("text",x=2,y= mean.cleanintr$meanCleanIntr[mean.cleanintr$Group == "MTL"] + 1,label="p < 0.001***") +
+  geom_path(data = geom.path.df[1:4,], aes(x=x, y = y))+
+  geom_path(data = geom.path.df[5:8,], aes(x=x, y=y))+
+  geom_path(data = geom.path.df[9:12,], aes(x = x, y = y))
+
+```

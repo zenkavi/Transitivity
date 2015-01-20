@@ -1,0 +1,253 @@
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+setwd("~/Dropbox/CDS/Transitivity")
+
+#Load most recent workspace
+load("~/Dropbox/CDS/Transitivity/TransitivityNov2014Workspace111314.RData")
+
+source("~/Dropbox/CDS/UsefulFunctions.R")
+
+options(digits=6)
+
+```
+
+Group differences in intransitivies
+--------------------------------------------------------
+
+### Old approach: Looking at them separately (control vs test task)
+
+```{r eval=FALSE}
+numbers.Intransitive$Group <- as.factor(numbers.Intransitive$Group)
+
+ggplot(data = numbers.Intransitive, aes(x = Group, y = CleanPercentIntr))+
+  geom_boxplot()+
+  theme_classic()
+#Outliers?
+ggplot(data = numbers.Intransitive, aes(x = Group, y = CleanPercentIntr))+
+  geom_point()+
+  ylim(0,20)+
+  theme_classic()
+
+aggregate(CleanIntr ~ Group, data=numbers.Intransitive, mean)
+aggregate(CleanIntr ~ Group, data=numbers.Intransitive, median)
+aggregate(CleanIntr ~ Group, data=numbers.Intransitive, sd)
+aggregate(CleanPercentIntr ~ Group, data=numbers.Intransitive, mean)
+aggregate(CleanPercentIntr ~ Group, data=numbers.Intransitive, median)
+aggregate(CleanPercentIntr ~ Group, data=numbers.Intransitive, sd)
+
+### Choice task
+
+choice2.Intransitive$Group <- as.factor(choice2.Intransitive$Group)
+
+ggplot(data = choice2.Intransitive, aes(x = Group, y = CleanPercentIntr))+
+  geom_boxplot()+
+  theme_classic()
+
+ggplot(data = choice2.Intransitive, aes(x = Group, y = CleanPercentIntr))+
+  geom_point()+
+  theme_classic()
+
+summary(aov(CleanPercentIntr ~ Group, data = choice2.Intransitive))
+
+aggregate(CleanIntr ~ Group, data=choice2.Intransitive, mean)
+aggregate(CleanIntr ~ Group, data=choice2.Intransitive, median)
+aggregate(CleanIntr ~ Group, data=choice2.Intransitive, sd)
+
+aggregate(CleanPercentIntr ~ Group, data=choice2.Intransitive, mean)
+aggregate(CleanPercentIntr ~ Group, data=choice2.Intransitive, median)
+
+kruskal.test(CleanIntr ~ Group, data=choice2.Intransitive)
+
+pairwise.wilcox.test(choice2.Intransitive$CleanIntr, choice2.Intransitive$Group, p.adj="bonferroni", exact=F)
+```
+
+Though side note: The distribution of effect sizes within tasks is not normal for either task. This is why we can't use ANOVA to test for group differences within tasks (and therefore go for Kruskall-Wallis)
+
+```{r} 
+ggplot(numbers.Intransitive, aes(CleanPercentIntr))+
+  geom_histogram()+
+  theme_classic()
+shapiro.test(numbers.Intransitive$CleanPercentIntr)
+# shapiro.test(log(numbers.Intransitive$CleanPercentIntr + 1))
+
+ggplot(choice2.Intransitive, aes(CleanPercentIntr))+
+  geom_histogram()+
+  theme_classic()
+shapiro.test(choice2.Intransitive$CleanPercentIntr)
+# shapiro.test(log(choice2.Intransitive$CleanPercentIntr+1))
+
+#Note also that a log transform would also take care of the non-normality for the choice task but not the test task. Basically haven't found a way to make sure that they have "equal" variances. But can at least transform (as below) to make them marginally independent of task.
+```
+
+### Problem with it: Significantly unequal variances in distribution of intransitivities (effect size)
+
+```{r eval=FALSE, echo=FALSE}
+#Is the variance between the groups equal? NO! (so no anova's lm's etc. This is not the big problem though)
+# bartlett.test(CleanPercentIntr ~ Group, data = numbers.Intransitive)
+
+#How about a median split (at 0.175) - isn't as useful
+# summary(numbers.Intransitive$CleanPercentIntr)
+```
+
+As the Bartlett test and the plot shows.
+
+```{r message=FALSE}
+#The variances between the two tasks are very different!
+var(numbers.Intransitive$CleanPercentIntr)
+var(choice2.Intransitive$CleanPercentIntr)
+
+#Significantly so? YES! (the more important/problematic issue is this)
+numbers.Intransitive$Task <- "numbers"
+choice2.Intransitive$Task <- "choice"
+both.Intransitive <- rbind(numbers.Intransitive, choice2.Intransitive)
+both.Intransitive$Task <- as.factor(both.Intransitive$Task)
+str(both.Intransitive)
+
+#The distribution of the effect size is not independent of the task!
+bartlett.test(CleanPercentIntr ~ Task, data = both.Intransitive)
+ggplot(both.Intransitive, aes(CleanPercentIntr, fill = Task))+
+  geom_histogram()+
+  theme_classic()
+```
+
+``` {r echo=FALSE, eval=FALSE}
+#One failed idea..
+#Median split
+median(numbers.Intransitive$CleanPercentIntr)
+numbers.Intransitive$IntrBinom <- ifelse(numbers.Intransitive$CleanPercentIntr > median(numbers.Intransitive$CleanPercentIntr), 1, ifelse(numbers.Intransitive$CleanPercentIntr < median(numbers.Intransitive$CleanPercentIntr), 0, ifelse(numbers.Intransitive$CleanPercentIntr == median(numbers.Intransitive$CleanPercentIntr), 1, NA)))
+table(numbers.Intransitive$IntrBinom)
+with(numbers.Intransitive, table(IntrBinom, Group))
+#NOW the group variances are not sig diff
+bartlett.test(IntrBinom ~ Group, data = numbers.Intransitive)
+aggregate(IntrBinom ~ Group, data=numbers.Intransitive, mean)
+aggregate(IntrBinom ~ Group, data=numbers.Intransitive, median)
+aggregate(IntrBinom ~ Group, data=numbers.Intransitive, sd)
+#Still sig group differences.. (Use this to plot?)
+kruskal.test(IntrBinom ~ Group, data=numbers.Intransitive)
+
+#Re-do merged df for plotting
+choice2.Intransitive$IntrBinom <- ifelse(choice2.Intransitive$CleanPercentIntr > median(choice2.Intransitive$CleanPercentIntr), 1, ifelse(choice2.Intransitive$CleanPercentIntr < median(choice2.Intransitive$CleanPercentIntr), 0, ifelse(choice2.Intransitive$CleanPercentIntr == median(choice2.Intransitive$CleanPercentIntr), 1, NA)))
+with(choice2.Intransitive, table(IntrBinom, Group))
+both.Intransitive <- rbind(numbers.Intransitive, choice2.Intransitive)
+both.Intransitive$Task <- as.factor(both.Intransitive$Task)
+str(both.Intransitive)
+```
+
+So transform your DV. Which is best? Go with log..
+
+```{r}
+bartlett.test(sqrt(CleanPercentIntr) ~ Task, data = both.Intransitive) #marginal
+
+bartlett.test(log(CleanPercentIntr + 1) ~ Task, data = both.Intransitive) #even less marginal
+
+bartlett.test(((-1)/(CleanPercentIntr+0.001)) ~ Task, data = both.Intransitive) #Doesn't work
+
+ggplot(both.Intransitive, aes(log(CleanPercentIntr + 1), fill = Task))+
+  geom_histogram()+
+  theme_classic()
+```
+
+Log transform spreads the variance in the numbers enough to make the difference in variance almost independent of task.
+
+Step back and think what you are interested in. First plot the data:
+
+```{r}
+#GOOD PLOT!
+plot.Intransitive.df <- ddply(both.Intransitive, .(Task, Group), summarise,
+      MeanCleanPercentIntr = mean(CleanPercentIntr, na.rm=T),
+      SeCleanPercentIntr = se(CleanPercentIntr),
+      eb.low = MeanCleanPercentIntr - SeCleanPercentIntr,
+      eb.high = MeanCleanPercentIntr + SeCleanPercentIntr)
+plot.Intransitive.df
+
+#With color
+limits <- aes(ymax = plot.Intransitive.df$eb.high, ymin=plot.Intransitive.df$eb.low)
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task, col = Task))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(limits, width=0.25)+
+  theme_classic()
+
+#For poster
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task))+
+  geom_point(aes(shape = Task))+
+  geom_line(aes(linetype = Task))+
+  geom_errorbar(limits, width=0.25)+
+  ylab("Mean Percentage of Intransitivities")+
+  xlab("")+
+  theme_classic()+
+  theme(axis.title.y = element_text(face="bold", size = 20),
+           axis.text.x  = element_text(face="bold", size = 20),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20))
+```
+
+Are these slopes sig? (Make sure to use transformed DVs!)
+
+```{r}
+gm1a <- lm(log(CleanPercentIntr+1) ~ Task, both.Intransitive)#; summary(gm1a)
+gm1b <- lm(log(CleanPercentIntr+1) ~ Group, both.Intransitive)# ; summary(gm1b)
+gm2 <- lm(log(CleanPercentIntr+1) ~ Group+Task, both.Intransitive)# ; summary(gm2)
+gm3 <- lm(log(CleanPercentIntr+1) ~ Group*Task, both.Intransitive)# ; summary(gm3)
+#Interactive model is always better!
+anova(gm1a, gm2, gm3)
+anova(gm1b, gm2, gm3)
+
+#So what does it say? Look at the contrasts first!
+contrasts(both.Intransitive$Task) 
+contrasts(both.Intransitive$Group)
+summary(gm3)
+#b0 = mean intrans for both tasks for the C group is >0 (not interesting)
+#b1 = ETL group doesn't make sig more intrans in CHOICE task! (good) - simple effect
+#b2 = MTL group DOES make sig more intrans in CHOICE task! (good) - simple effect
+#b3 = C group makes sig less intrans in NUMBERS task! (not surprising, easy task)
+#b4 = Is the effect of task in ETL group same as C. Yes.
+#b5 = Is the effect of task in MTL group same as C. Marginally no. 
+
+#BUT the above are not orthogonal contrasts and is comparing both groups to Healthy controls only!
+
+#If we change the contrasts and make them orthogonal there would be no overlapping variance (and seems like answer our question of interest perhaps slightly more indirectly but possibly more fully). We would first compare the ETL group to the C group and then the MTL group to BOTH CONTROL GROUPS!
+
+#Change the contrasts, make them orthogonal
+both.Intransitive.contrast <- both.Intransitive
+contrasts(both.Intransitive.contrast$Group) <- cbind(c(-1,1, 0), c(-1, -1, 2))
+contrasts(both.Intransitive.contrast$Task) <- c(-1, 1)
+
+contrasts(both.Intransitive.contrast$Task)
+contrasts(both.Intransitive.contrast$Group)
+
+gm3.con <- lm(log(CleanPercentIntr+1) ~ Group*Task, both.Intransitive.contrast) 
+summary(gm3.con)
+#b0 = Unweighted grand mean (mean of group means) (sum(aggregate(CleanPercentIntr ~ Group, both.Intransitive.contrast, mean)[,2])/3)
+#b1 = Total group effect for ETL compared to healthy controls only (quantified)
+#b2 = Total group effect for MTL compared to both control groups (quantified)
+#b3 = Total task effect
+#b4 = Is the effect of task change same for ETL and C groups? (yes.)
+#b5 = Is the effect of task change same for MTL vs both control groups? (No!)
+
+#Simple effect of group 
+#Create dummy variables for simple effects instead of changing the contrast in the df
+both.Intransitive.contrast$number <- ifelse(both.Intransitive.contrast$Task == "numbers",1,0)
+both.Intransitive.contrast$choice <- ifelse(both.Intransitive.contrast$Task == "choice",1,0)
+#Simple effect of group for choice task: MTL (Group 2) significantly higher!
+gm3.con.sc <- lm(log(CleanPercentIntr+1) ~ Group*number, both.Intransitive.contrast); summary(gm3.con.sc) 
+#Simple effect of group for number task: ETL (Group 1) significantly (marg?) higher
+gm3.con.sn <- lm(log(CleanPercentIntr+1) ~ Group*choice, both.Intransitive.contrast); summary(gm3.con.sn) 
+```
+
+Checking if mixed model necessary (based on first lectures on mixed models): 
+
+```{r}
+summary(aov(log(CleanPercentIntr+1) ~ Group*Task + Error(f.id), both.Intransitive)))
+#Within group var looks very small compared to between groups?
+
+gm3.lmer <- lmer(log(CleanPercentIntr+1) ~ Group*Task + (1|f.id), both.Intransitive, REML = F)
+
+summary(gm3.lmer)
+
+# anova(gm3, gm3.lmer) #Doesn't work
+
+x2 = -2*logLik(gm3) +2*logLik(gm3.lmer)
+x2
+pchisq(x2, df=1, lower.tail=F)
+

@@ -1,0 +1,265 @@
+Transitivity SOM
+========================================================
+
+```{r echo =FALSE, warning=FALSE, message=FALSE}
+# load("~/Dropbox/CDS/Transitivity/grid files/TransitivityFastWorkSpace020114.RData")
+# load("~/Dropbox/CDS/Transitivity/TransitivityRmdWorkSpace020114.RData")
+load("~/Dropbox/CDS/Transitivity/TransitivityRmdWorkSpace032014.RData")
+options(digits=3)
+library(lme4)
+library(ggplot2)
+library(plyr)
+library(LMERConvenienceFunctions)
+```
+
+### Missed trials
+
+```{r}
+Intransitive$HasMissed <- ifelse(Intransitive$Missed >0 , 1, 0)
+```
+
+Is the MTL group more likely to time out?
+
+```{r}
+chisq.test(table(Intransitive$HasMissed, Intransitive$Group))
+```
+
+Yes
+
+Average number of missed trials:
+
+```{r}
+aggregate(Missed ~ Group, data = Intransitive, FUN = mean)
+```
+
+How much of the missed trials is 8146 responsible for?
+
+```{r}
+66/sum(Intransitive$Missed)
+```
+
+Excluding 8146 are there group differences in number of timed out trials?
+
+```{r}
+summary(aov(Missed ~ Group, data = Intransitive[Intransitive$f.id != 8146,]))
+```
+
+Yes
+
+```{r}
+pairwise.t.test(Intransitive$Missed[Intransitive$f.id != 8146], Intransitive$Group[Intransitive$f.id != 8146], p.adjust = "bonferroni") 
+```
+
+Group average timed out trials with exclusion
+```{r}
+aggregate(Missed ~ Group, data = Intransitive[Intransitive$f.id != 8146,], FUN = mean)
+
+```
+
+### Task time
+
+```{r}
+
+#Total Task times and average reaction times excluding timed out trials
+TaskTime <- ddply(all.data[all.data$RT>0,], .(f.id, Group), summarise, TaskTotal = sum(RT), RTave = mean(RT))
+
+TaskTime$TaskTotalMin <- TaskTime$TaskTotal/(1000*60)
+
+#Exclude subject with 66 timed out trials
+TaskTime <- TaskTime[TaskTime$f.id != 8146,]
+```
+
+Average RT and TaskTime
+
+```{r}
+summary(all.data$RT[all.data$RT>0])
+sd(all.data$RT[all.data$RT>0])
+
+summary(TaskTime$TaskTotal)
+summary(TaskTime$TaskTotalMin)
+sd(TaskTime$TaskTotalMin)
+```
+
+Difference in task completion total? (excluding time outs and 8146)
+Group means
+
+```{r}
+aggregate(TaskTotal ~ Group, data=TaskTime, FUN=mean)
+aggregate(TaskTotalMin ~ Group, data=TaskTime, FUN=mean)
+
+#Anova
+summary(aov(TaskTotal ~ Group, data=TaskTime))
+summary(aov(TaskTotalMin ~ Group, data=TaskTime))
+```
+
+### RT on trial level
+```{r}
+#For lmer's note that each subject is nested within groups
+isNested(all.data$f.id, all.data$Group)
+
+#### ":" IS FOR NESTING "(1 + X | Y)" IS FOR RANDOM INTERCEPT FOR BY Y ADJUSTMENTS TO THE INTERCEPTS DENOTED BY 1 AND BY Y ADJUSTMENTS TO X (X BEING A FIXED EFFECT IN THE MODEL) I.E. BY Y RANDOM SLOPES FOR X
+
+#Trial level RT group differences
+t1 <- lmer(RT ~ (1 | Group:f.id) + Trialnumber, data= all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber and random intercept for subject (nesting specification does not add anything else since lme4 is aware of it)
+
+t2 <- lmer(RT ~ (1 | Group:f.id) + Trialnumber * Group, data= all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber, group and trialnumber group interaction (ie slopes), random intercept for subject
+
+t3 <- lmer(RT ~ (1 | Group:f.id) + Trialnumber + Group, data= all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber and group and random intercepts for subject
+
+t4 <- lmer(RT ~ Trialnumber + Group + (Group | f.id), data=all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber and group , random intercepts for subjects and adjustments to group effect by subject (ie random slopes)
+
+t5 <- lmer(RT ~ Trialnumber * Group + (1 | f.id), data=all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber, group and trialnumber group interaction (ie slopes), random intercept for subject
+
+t6 <- lmer(RT ~ Trialnumber * Group + (Group | f.id), data=all.data[all.data$RT>0 & all.data$f.id != 8146,]) #Fixed effect for trialnumber, group and trialnumber group interaction (ie slopes), random intercept for subject and random slopes for subject on group 
+
+anova(t1, t2, t3, t4, t5, t6)
+
+anova(t2, t5, t6) #T2 and t5 ARE THE SAME MODEL. LME4 UNDERSTANDS THE NESTING STRUCTURE WITHOUT SPECIFICATION.
+
+#Conclusion: t2 and t5 are the same model and they have the lowest AIC and BIC (ie best fitting). Random slopes in t6 are not necessary. T6 is not significantly worse than t2/5 but is in that direction. 
+
+#Do we need the individual intercepts?
+t7 <- lm(RT ~ Trialnumber * Group, data=all.data[all.data$RT>0 & all.data$f.id != 8146,])
+extractAIC(t5)
+extractAIC(t7)
+
+# So using the t2/5:
+# There is a fixed effect of Trialnumber (all groups get faster in later trials)
+# There is a significant fixed effect for the MTL group (The MTL group is slower on average)
+# The interaction for both groups is significant. The slope of speeding in later trials is steepest for the MTL group, followed by the control group and flattest for the ETL group
+# There are relatively large individual differences captured by the random intercepts (and seen in the dotplot). Though it might actually be harder to determine whether it is necessary to use a multilevel model and capture these since the AIC for the lm (t7) is lower..
+
+#Model based plot
+plotLMER.fnc (t2, pred = "Trialnumber", intr = list("Group", c("C", "ETP", "MTL"), "end", list(c("red", "green", "blue"), c(1,1,1))))
+
+#Raw data plot
+ggplot(data = all.data[all.data$RT>0 & all.data$f.id != 8146,], aes(x=Trialnumber, y=RT, group = Group, col = Group))+
+  geom_smooth(method = "loess")+
+  theme_classic()
+
+# Plot random effects
+dotplot(ranef(t5, condVar = TRUE))
+
+```
+
+### Choice
+
+```{r}
+
+summary(all.data$Intrans[all.data$RT>0])
+sd(all.data$Intrans[all.data$RT>0])
+summary(Intransitive$CleanIntr)
+sd(Intransitive$CleanIntr)
+
+aggregate(Intrans ~ Group, data = Intransitive, mean)
+aggregate(Intrans ~ Group, data = Intransitive, median)
+aggregate(Intrans ~ Group, data = Intransitive, sd)
+aggregate(PercentIntr ~ Group, data = Intransitive, mean)
+
+aggregate(CleanIntr ~ Group, data = Intransitive, mean)
+aggregate(CleanIntr ~ Group, data = Intransitive, median)
+aggregate(CleanIntr ~ Group, data = Intransitive, sd)
+aggregate(CleanPercentIntr ~ Group, data = Intransitive, mean)
+```
+
+### Left
+
+```{r}
+
+left.test2 <- as.vector(rbind(rep(0, nrow(Data)/2), rep(1, nrow(Data)/2)))
+t.test(Data$Choice.left1.right0[], left.test2)
+t.test(Data.c$Choice.left1.right0, left.test2[1:nrow(Data.c)])
+t.test(Data.etp$Choice.left1.right0, left.test2[1:nrow(Data.etp)])
+t.test(Data.mtl$Choice.left1.right0, left.test2[1:nrow(Data.mtl)])
+
+#All but one timed out trial is coded right
+table(all.data$Choice.left1.right0, all.data$Error)
+
+#Excluding time outs the effect disappears
+t.test(all.data$Choice.left1.right0[all.data$Group == "MTL" & all.data$RT >0], left.test2[1:nrow(all.data[all.data$Group == "MTL" & all.data$RT >0,])])
+```
+
+### Bars
+
+```{r}
+
+Bars <- as.data.frame(table(all.data$Choice.image, all.data$f.id))
+names(Bars) <- c("Bars", "f.id", "Freq")
+Bars$Group <- rep(NA, nrow(Bars))
+for(i in 1: nrow(Bars)){
+    Bars$Group[i] <- as.character(Intransitive$Group[which(Intransitive$f.id == Bars$f.id[i])])
+}
+Bars$Group <- as.factor(Bars$Group)
+summary(lmer(Freq ~ (1|Bars) + (1|f.id) + Group, data = Bars))
+summary(aov(Freq ~ Bars, data = Bars))
+pairwise.t.test(Bars$Freq, Bars$Bars, p.adjust = "bonferroni")
+```
+
+
+### RT predicts intransitivities?
+
+```{r}
+
+a1 <- lmer(Intrans ~ RT *Group + (1 | f.id), data=all.data[all.data$RT>0,])
+summary(a1)
+
+a2 <- lmer(Intrans ~ Group + (1 | f.id), data=all.data[all.data$RT>0,])
+summary(a2)
+anova(a1, a2)
+
+ggplot(data=all.data[all.data$RT>300 & all.data$RT<5500 & all.data$f.id != 8146,], aes(x = RT, y = Intrans, group = Group, col = Group))+
+  geom_smooth()+
+  theme_classic()
+
+ggplot(data=all.data[all.data$RT>600 & all.data$RT<5500 & all.data$f.id != 8146,], aes(x = RT, y = Intrans, group = Group, col = Group))+
+  geom_smooth()+
+  theme_classic()
+
+# Looking at this plot non-linear effects
+all.data$RT.quad <- all.data$RT^2
+
+all.data$RT.c <- all.data$RT - mean(all.data$RT[all.data$RT>0])
+
+all.data$RT.quad.c <- all.data$RT.quad - mean(all.data$RT.quad[all.data$RT>0])
+
+a3 <- lmer(Intrans ~ RT.c*RT.quad.c*Group + (1 | f.id), data=all.data[all.data$RT>600 & all.data$RT<5500 & all.data$f.id != 8146,])
+
+a4 <- lmer(Intrans ~ RT.c + RT.quad.c + Group + RT.c:Group + (1 | f.id), data=all.data[all.data$RT>600 & all.data$RT<5500 & all.data$f.id != 8146,])
+
+# anova(a3, a4)
+
+summary(a4)
+
+a4b <- lmer(Intrans ~ RT.c + RT.quad.c + Group + RT.c:Group + (1 | f.id), data=all.data[all.data$RT>0 ,])
+a2b <- lmer(Intrans ~ Group + (1 | f.id), data=all.data[all.data$RT>0,])
+
+anova(a4b, a2b)
+
+# plotLMER.fnc (a1, pred = "RT", intr = list("Group", c("C", "ETP", "MTL"), "end", list(c("red", "green", "blue"), c(1,1,1))))
+
+plotLMER.fnc (a4, pred = "RT.c", intr = list("Group", c("C", "ETP", "MTL"), "end", list(c("red", "green", "blue"), c(1,1,1))))
+```
+
+```{r eval=FALSE, echo=FALSE}
+
+# lmer syntax resources
+# http://webcom.upmf-grenoble.fr/LIP/Perso/DMuller/M2R/R_et_Mixed/documents/Baayen-2008-JML.pdf
+# 
+# http://http1.debian.or.jp/pub/CRAN/doc/Rnews/Rnews_2005-1.pdf#page=27
+# 
+# Mediation with lmer resources:
+#https://stat.ethz.ch/pipermail/r-sig-mixed-models/2009q4/003094.html
+
+#http://www.ats.ucla.edu/stat/r/faq/ml_mediation2.htm
+
+# mm <- lmer(z ~ 0 + sm + sm:x + sy + sy:m + sy:x + (0 + sm + sm:x +
+#     sy + sy:m + sy:x | id) + (0 + sm | fid), data = stacked)
+# 
+# mm.alt <- lme(z ~ 0 + sm + sm:x + sy + sy:m + sy:x, data = stacked,
+#     random = ~0 + sm + sm:x + sy + sy:m + sy:x | id, weights = varIdent(form = ~1 |
+#         variable))
+# 
+# summary(lme(RT ~ Group*Trialnumber, data = all.data, random = ~ 1 | f.id))
+# summary(lmer(RT ~ Group + (1 | f.id), data = all.data))
+
+```

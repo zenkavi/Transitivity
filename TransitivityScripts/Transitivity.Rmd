@@ -1,0 +1,972 @@
+Intransitivity
+========================================================
+
+```{r echo =FALSE}
+# load("~/Dropbox/CDS/Transitivity/grid files/TransitivityFastWorkSpace020114.RData")
+# load("~/Dropbox/CDS/Transitivity/TransitivityRmdWorkSpace020114.RData")
+# load("~/Dropbox/CDS/Transitivity/TransitivityRmdWorkSpace032014.RData")
+options(digits=3)
+```
+
+### Organization code
+
+Scroll below to descriptive if not interested.
+
+Read Data in:
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+######### Read Data in
+setwd("~/Dropbox/CDS/Transitivity/grid files")
+Data <- read.csv("complete_data.csv")
+TrialNumber <- read.csv("TrialNumbers.csv")
+options(digits=3)
+names(Data)
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(lme4)
+library(ggplot2)
+library(reshape)
+```
+
+Organize Data
+
+```{r eval=FALSE}
+######### Organize Data
+#Create variables
+Data$Choice <- ifelse(Data$Choice_1left_4right == 1, "left", "right")
+
+Data$Choice.image <- ifelse(Data$Choice_1left_4right == 1, Data$Image_left, Data$Image_right)
+
+Data$Choice.left1.right0 <- ifelse(Data$Choice_1left_4right == 1, 1, 0)
+
+Data$Group <- ifelse(Data$Group == 1, "MTL", 
+                ifelse(Data$Group == 2, "ETP","C"))
+
+Data$f.id <- as.factor(Data$SubjectID)
+
+TrialNumber$Image_right <- ifelse(TrialNumber$Image_right <10, paste(0,as.character(TrialNumber$Image_right,sep="")), TrialNumber$Image_right)
+TrialNumber$Image_left <- ifelse(TrialNumber$Image_left <10, paste(0,as.character(TrialNumber$Image_left,sep="")), TrialNumber$Image_left)
+TrialNumber$Paste <- paste(TrialNumber$Image_right, TrialNumber$Image_left, sep="")
+TrialNumber$Paste<- gsub(" ", "", TrialNumber$Paste)
+
+Data$Image_right <- ifelse(Data$Image_right <10, paste(0,as.character(Data$Image_right,sep="")), Data$Image_right)
+Data$Image_left <- ifelse(Data$Image_left <10, paste(0,as.character(Data$Image_left,sep="")), Data$Image_left)
+Data$Paste <- paste(Data$Image_right, Data$Image_left, sep="")
+Data$Paste<- gsub(" ", "", Data$Paste)
+
+Data2 <- read.csv("complete_data.csv")
+Data$Image_right <- Data2$Image_right
+Data$Image_left <- Data2$Image_left
+rm(Data2)
+
+Data$Trial<- rep(NA, nrow(Data))
+for (i in 1:nrow(Data)){
+  Data$Trial[i]<- TrialNumber$Trial[which(Data$Paste[i] == TrialNumber$Paste)] 
+}
+```
+
+Count intransitive choices
+
+11.14.13 Corrected to include reverse transitivity as well.  
+12.01.13 Includes counting error trials (trials where participant took too long to respond)  
+01.30.14 Made more efficient creating functions and using dplyr
+03.19.14 Trialnumber vs Trial corrected in all.ag and merge
+
+```{r eval=FALSE}
+#Count intransitive choices
+
+#Creates df with subject id in col 1 and number of timed out trials in col 2
+Error <- as.data.frame(table(Data[which(Data$RT<0), "SubjectID"]))
+
+#Create temp df where intransitive choices will be counted by creating the 1140 triplets possible out of 20 options (C(20,3) = 1140)
+comb <- t(combn(unique(Data$Image_left),3))
+comb <- as.data.frame(comb)
+names(comb) <- c("A", "B", "C")
+comb$ApreftoB <- rep(NA, nrow(comb))
+comb$BpreftoC <- rep(NA, nrow(comb))
+comb$CpreftoA <- rep(NA, nrow(comb))
+comb$Intrans <- rep(NA, nrow(comb))
+comb$ErrApreftoB <- rep(NA, nrow(comb))
+comb$ErrBpreftoC <- rep(NA, nrow(comb))
+comb$ErrCpreftoA <- rep(NA, nrow(comb))
+comb$Err <- rep(NA, nrow(comb))
+comb$ErrIntrans <- rep(NA, nrow(comb))
+comb$TrialA <- rep(NA, nrow(comb))
+comb$TrialB <- rep(NA, nrow(comb))
+comb$TrialC <- rep(NA, nrow(comb))
+comb$ThirdTrial <- rep(NA, nrow(comb))
+comb$PasteA <- rep(NA, nrow(comb))
+comb$PasteB <- rep(NA, nrow(comb))
+comb$PasteC <- rep(NA, nrow(comb))
+
+#Functions to calculate intransitives
+
+library(dplyr)
+library(plyr)
+
+data_ind <- group_by(Data, f.id)
+
+# Function 1: Check intransitivity on one row of comb (in one triplet)
+# Output: Record choice, intransitivity, error, error+intransitivity, trial number for each pair, last trial of triplet, pair identifier in one row
+
+comb.row.fn <- function (df, comb.row) {
+  # INPUT 
+  #   df: individual participants data
+  #   comb.row: comb data frame split by row
+  j <- which((df$Image_left == comb.row$A | df$Image_right == comb.row$A) &
+               (df$Image_left == comb.row$B | df$Image_right == comb.row$B))
+  #Record choice for A vs B
+  ApreftoB <- ifelse(df$Choice.image[j] == comb.row$A, 1, 0)
+  #Record if the trial was error (i.e. timed out)
+  ErrApreftoB <- ifelse(df$RT[j] < 0 , 1, 0)
+  #Find trial row in df that has the B vs C choice in comb
+  k <- which((df$Image_left == comb.row$B | df$Image_right == comb.row$B) &
+               (df$Image_left == comb.row$C | df$Image_right == comb.row$C))
+  #Record choice for B vs C
+  BpreftoC <- ifelse(df$Choice.image[k] == comb.row$B, 1, 0)
+  #Record if the trial was error (i.e. timed out)
+  ErrBpreftoC <- ifelse(df$RT[k] <0 , 1, 0)
+  #Find trial row in df that has the A vs C choice in comb
+  l <- which((df$Image_left == comb.row$A | df$Image_right == comb.row$A) &
+               (df$Image_left == comb.row$C | df$Image_right == comb.row$C))
+  #Record choice for A vs C
+  CpreftoA <- ifelse(df$Choice.image[l] == comb.row$C, 1, 0)
+  #Record if the trial was error (i.e. timed out)
+  ErrCpreftoA <- ifelse(df$RT[l] <0 , 1, 0)
+  #A triplet is intransitive if either A>B, B>C and C>A OR A<B, B<C and C<A (the second is the reverse)
+  Intrans <- ifelse (ApreftoB == 1 & BpreftoC == 1 & CpreftoA == 1, 1, 
+                     ifelse(ApreftoB == 0 & BpreftoC == 0 & CpreftoA == 0, 1, 0))
+  #A triplet involves and Error if any of the three trials involved has timed out
+  Err <- ifelse(ErrApreftoB == 1 | ErrBpreftoC == 1 | ErrCpreftoA == 1, 1, 0)
+  #Mark triplets where there is both an error and an intransitivity
+  ErrIntrans <- ifelse((ErrApreftoB == 1 | ErrBpreftoC == 1 | ErrCpreftoA == 1) & Intrans==1, 1, 0)
+  TrialA <- df$Trialnumber[j]
+  TrialB <- df$Trialnumber[k]
+  TrialC <- df$Trialnumber[l]
+  ThirdTrial <- max(TrialA, TrialB, TrialC)
+  PasteA <- Data$Paste[j]
+  PasteB <- Data$Paste[k]
+  PasteC <- Data$Paste[l]
+  # setup data to return
+  ret.dat <- data.frame(A = comb.row$A, 
+                        B = comb.row$B,
+                        C = comb.row$C,
+                        ApreftoB = ApreftoB,
+                        BpreftoC = BpreftoC,
+                        CpreftoA = CpreftoA,
+                        Intrans = Intrans,
+                        ErrApreftoB = ErrApreftoB,
+                        ErrBpreftoC = ErrBpreftoC,
+                        ErrCpreftoA = ErrCpreftoA,
+                        Err = Err,
+                        ErrIntrans = ErrIntrans,
+                        TrialA = TrialA,
+                        TrialB = TrialB,
+                        TrialC = TrialC,
+                        ThirdTrial = ThirdTrial,
+                        PasteA = PasteA,
+                        PasteB = PasteB,
+                        PasteC = PasteC)
+  return(ret.dat)
+}
+
+# Create continuous triplet variable
+comb <- mutate(comb, 
+               id = 1:nrow(comb))
+
+# Function 2: Apply function 1 (row level intransitivity calculation) to subset of data including all triplets for one participant
+comb.fn <- function(Data.cut, comb) {
+  ddply(comb, .(id), comb.row.fn, df = Data.cut)
+}
+
+# Combine intransitivity calculation for all participant by applying to subject level calculation to all participants
+# Output: 1140*number of subject rows recording with output of comb.row.fn function
+all <- ddply(Data, .(f.id, Group), comb.fn, comb = comb, .progress="text")
+
+# Summarize triplet level intransitivity on subject level 
+# Output: nrow = number of subjects
+Intransitive <- ddply(all, .(f.id, Group), summarise, 
+             Intrans = sum(Intrans),
+             Err = sum(Err), 
+             ErrIntrans = sum(ErrIntrans))
+
+# Create additional subject level variables and calculations of percentages
+Intransitive$Missed <- rep(NA, nrow(Intransitive))
+
+#Assign number of missed trials from the Error df to the correct subject in Intrans df
+for (i in 1:nrow(Error)){
+  j <- which(as.character(Intransitive$f.id) == as.character(Error$Var1[i]))
+  Intransitive$Missed[j] <- Error$Freq[i]
+}
+#Or give 0 if there are no missed trials
+Intransitive$Missed <- ifelse(is.na(Intransitive$Missed) == T, 0, Intransitive$Missed)
+
+Intransitive$PercentMissed <- Intransitive$Missed/190*100
+Intransitive$PercentIntr <- Intransitive$Intrans/1140*100
+Intransitive$PercentMissedTrialsAffect <- Intransitive$Err/1140*100
+#Percent of intransitivies that include an error
+Intransitive$PIntrError<- Intransitive$ErrIntrans/ Intransitive$Intrans *100
+
+# Create pair level intransitivity count
+
+# Temp df before aggregating. Has all three "Paste"s (ie trials in one column)
+all.m <- melt(all[, c("f.id", "Group", "Intrans", "Err", "ErrIntrans","TrialA", "TrialB", "TrialC")], id = c("f.id", "Group", "Intrans", "Err", "ErrIntrans"))
+
+# Aggregate df to sum (I think Err and ErrIntrans are less usefull here. Using only Intrans so far.)
+# Note: Total intransitivities will be triple counted this way (because all three pairs that are involved in an intransitivity take the dummy variable 1)
+
+# all.ag <- aggregate(all.m[,c("Intrans","Err", "ErrIntrans")], by = list(f.id = all.m$f.id, Group = all.m$Group, Trial = all.m$value), FUN = "sum")
+
+all.ag <- aggregate(all.m[,c("Intrans","Err", "ErrIntrans")], by = list(f.id = all.m$f.id, Group = all.m$Group, Trialnumber = all.m$value), FUN = "sum")
+
+# Merge Intransitivity info with rest of trial level data
+
+# all.data <- merge(Data, all.ag, by = c("f.id", "Group", "Trial"))
+
+all.data <- merge(Data, all.ag, by = c("f.id", "Group", "Trialnumber"))
+
+# Create centered trial number and quadratic trial term
+
+all.data$c.Trialnumber <- all.data$Trialnumber - mean(all.data$Trialnumber)
+all.data$c.TrialQuad <- all.data$c.Trialnumber^2
+
+# Create df counting how many times each trial was involved in intransitivity
+
+Trialnumber.df <- as.data.frame(table(all$ThirdTrial, all$Intrans, all$f.id))
+
+head(Trialnumber.df, 190)
+
+names(Trialnumber.df) <- c("Trialnumber", "Intrans", "f.id", "IntransFreq")
+
+# Exclude those where there is no intransitivity
+
+Trialnumber.df <- Trialnumber.df[Trialnumber.df$Intrans == 1,]
+
+# Organize classes of columns
+
+Trialnumber.df$Trialnumber <- as.numeric(as.character(Trialnumber.df$Trialnumber))
+Trialnumber.df$Intrans <- as.numeric(as.character(Trialnumber.df$Intrans))
+
+# Merge w pair level data
+
+all.data <- merge(all.data, Trialnumber.df[,c("Trialnumber", "f.id", "IntransFreq")], by = c("Trialnumber", "f.id"), all.x=T)
+
+all.data <- all.data[order(all.data$f.id, all.data$Trialnumber),]
+
+# Replace NA's in IntransFreq w 0's (these trials have never been the largest trial in a triplet)
+
+all.data$IntransFreq <- ifelse(is.na(all.data$IntransFreq), 0, all.data$IntransFreq)
+
+```
+
+Descriptives
+-------------------------
+
+### Number of participants
+
+```{r}
+table(Intransitive$Group) 
+```
+
+### Number of intransitive choices
+
+MTL has significantly more intransitivities than C and marginally more than ETP. 
+ETP does not have more intransitivies than C.
+
+```{r}
+######### Descriptives
+
+summary(Intransitive$Intrans)
+aggregate(Intrans ~ Group, data=Intransitive, mean)
+aggregate(Intrans ~ Group, data=Intransitive, median)
+aggregate(PercentIntr ~ Group, data=Intransitive, mean)
+aggregate(PercentIntr ~ Group, data=Intransitive, median)
+Aov.pint <- aov(PercentIntr ~ Group, data = Intransitive)
+summary(Aov.pint) # The group means are different
+TukeyHSD(Aov.pint, conf.level = 0.95)
+pairwise.t.test(Intransitive$PercentIntr, Intransitive$Group, p.adjust = "bonferroni") 
+```
+
+### Kruskal-Wallis-Test
+
+Same result as anova above. 
+Number of intransitivies differ between groups.
+MTL differs from both groups but ETP and C do not.
+
+```{r}
+Intransitive$Group <- as.factor(Intransitive$Group)
+kruskal.test(Intrans ~ Group, data=Intransitive)
+pairwise.wilcox.test(Intransitive$Intrans, Intransitive$Group, p.adj="bonferroni", exact=F)
+```
+
+03.06.14 - Bootstrapping the median and plot
+
+```{r}
+
+set.seed(123)
+
+#function which will bootstrap the standard error of the median
+b.median <- function(data, num) {
+    resamples <- lapply(1:num, function(i) sample(data, replace=T))
+    r.median <- sapply(resamples, median)
+    std.err <- sqrt(var(r.median))
+    list(std.err=std.err, resamples=resamples, medians=r.median)   
+}
+
+#generating the data to be used (percentages of intransitivities for each group)
+intr.mtl <- Intransitive$PercentIntr[Intransitive$Group == "MTL"]
+intr.etp <- Intransitive$PercentIntr[Intransitive$Group == "ETP"]
+intr.c <- Intransitive$PercentIntr[Intransitive$Group == "C"]
+
+#saving the results of the function b.median in the object b1
+b.mtl <- b.median(intr.mtl, 1000)
+b.etp <- b.median(intr.etp, 1000)
+b.c <- b.median(intr.c, 1000)
+
+#displaying the first of the 30 bootstrap samples
+# b.mtl$resamples[1]
+
+#displaying the standard error
+b.mtl$std.err
+b.etp$std.err
+b.c$std.err
+
+#displaying the histogram of the distribution of medians
+# hist(b.mtl$medians)
+# hist(b.etp$medians)
+# hist(b.c$medians)
+
+# summary(b.mtl$medians)
+# summary(b.etp$medians)
+# summary(b.c$medians)
+
+median.intr <- aggregate(PercentIntr ~ Group, data= Intransitive, median)
+median.intr$se <- rep(NA, 3)
+median.intr$se[median.intr$Group == "C"] <- b.c$std.err
+median.intr$se[median.intr$Group == "ETP"] <- b.etp$std.err
+median.intr$se[median.intr$Group == "MTL"] <- b.mtl$std.err
+levels(median.intr$Group) <- c("C", "ETL", "MTL")
+
+#Confidence intervals
+#Order medians
+medians.mtl <- b.mtl$medians
+medians.mtl <- medians.mtl[order(medians.mtl)]
+medians.etp <- b.etp$medians
+medians.etp <- medians.etp[order(medians.etp)]
+medians.c <- b.c$medians
+medians.c <- medians.c[order(medians.c)]
+
+#Add 2.5th and 97.5 percentile
+median.intr$ci.low[median.intr$Group == "C"] <- medians.c[25]
+median.intr$ci.low[median.intr$Group == "MTL"] <- medians.mtl[25]
+median.intr$ci.low[median.intr$Group == "ETL"] <- medians.etp[25]
+
+median.intr$ci.high[median.intr$Group == "C"] <- medians.c[975]
+median.intr$ci.high[median.intr$Group == "MTL"] <- medians.mtl[975]
+median.intr$ci.high[median.intr$Group == "ETL"] <- medians.etp[975]
+
+limits <- aes(ymax = PercentIntr + se, ymin= PercentIntr - se)
+ggplot(data= median.intr, aes(x = Group, y = PercentIntr)) +
+  geom_point() +
+  geom_errorbar(limits, position = "dodge") +
+  theme_classic() +
+  xlab("") +
+  ylab("Percentage of Intransitivities") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold")) + 
+  ylim(0, 7)
+
+ggplot(data= median.intr, aes(x = Group, y = PercentIntr, ymin = ci.low, ymax= ci.high)) +
+  geom_point() +
+  theme_classic() +
+  geom_pointrange() +
+  xlab("") +
+  ylab("Percentage of Intransitivities") +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold")) + 
+  ylim(0, 8) 
+```
+
+### Percent left
+
+No significant group differences (unless you want to pick on the marginal MTL-C comparison). Near 50% overall.
+
+```{r}
+# Percent left = No group differences
+mean(Data$Choice.left1.right0)
+aggregate(Choice.left1.right0 ~ Group, data=Data, mean)
+#Just to make sure: bring to subject level
+Left <- aggregate(Data[,c("Choice.left1.right0")],by=list(id=Data$f.id),FUN="mean")
+Left$Group <- Intransitive$Group
+ggplot(data=Left, aes(x=Group, y=x, group = Group))+
+  geom_boxplot()+
+  theme_classic()
+summary(aov(x ~ Group, data = Left))
+TukeyHSD(aov(x ~ Group, data = Left), conf.level = 0.95)
+pairwise.t.test(Left$x, Left$Group, p.adjust = "bonferroni") 
+rm(Left)
+```
+
+### Do people chose left more/less than 50%?
+
+Overall yes but due to MTL group.
+
+```{r}
+left.test <- rep(0.5, nrow(Data))
+t.test(Data$Choice.left1.right0, left.test)
+Data.c <- Data[Data$Group == "C",]
+t.test(Data.c$Choice.left1.right0, left.test)
+Data.etp <- Data[Data$Group == "ETP",]
+t.test(Data.etp$Choice.left1.right0, left.test)
+Data.mtl <- Data[Data$Group == "MTL",]
+t.test(Data.mtl$Choice.left1.right0, left.test)
+````
+
+### RT
+
+No group differences.
+
+```{r}
+# RT = No group differences
+mean(Data$RT)
+aggregate(RT ~ Group, data=Data, mean)
+RT <- aggregate(Data[,c("RT")],by=list(id=Data$f.id),FUN="mean")
+Group <- aggregate(Data[,c("Group")],by=list(id=Data$f.id),FUN="unique")
+RT$Group <- Group$x
+ggplot(data=RT, aes(x=Group, y=x, group = Group))+
+  geom_boxplot()+
+  theme_classic()
+summary(aov(x ~ Group, data = RT))
+TukeyHSD(aov(x ~ Group, data = RT), conf.level = 0.95)
+pairwise.t.test(RT$x, RT$Group, p.adjust = "bonferroni") 
+rm(RT, Group)
+```
+
+### Any of the bars chosen more often?
+
+Doesn't seem so. But hard to tell from this. See the end of the page for differences (which are apparently significant but not sure whether meaningful).
+
+```{r}
+# Any of the bars chosen more? Doesn't seem so.
+Bar <- as.data.frame(prop.table(table(Data$Choice.image)))
+names(Bar) <- c("Bar", "Prop")
+plot(Prop ~ Bar, data=Bar, ylim = c(0,1))
+rm(Bar)
+```
+
+### Group differences in RT controlling for individual differences?
+
+Not significant. (MTL marginally slower)
+
+```{r}
+#Group differences in RT controlling for individual differences: not significant
+m1 <- lmer(RT ~ Group + (1 | f.id), data=Data)
+summary(m1)
+
+```
+
+### Trial number has  a significant fixed effect on RT 
+
+People get faster in later trials.
+
+```{r}
+#Trial number has  a significant fixed effect on RT: People get faster in later trials
+m2 <- lmer(RT ~ Trialnumber + Group + (1 | f.id), data= Data)
+summary(m2)
+par(mfrow=c(1,2))
+#Intercept = a
+log.a <- coef(summary(lm(log(RT) ~ log(Trialnumber), data= Data[Data$RT>0,])))[1]
+a <- exp(log.a)
+#Slope = k
+k <-coef(summary(lm(log(RT) ~ log(Trialnumber), data= Data[Data$RT>0,])))[2]
+plot(aggregate(log(RT) ~ log(Trialnumber), data= Data[Data$RT>0,], mean), col = "red",pch=16, cex=0.5)
+abline(log.a,k)
+plot(Data$Trialnumber, a*(Data$Trialnumber)^k, pch=16, cex=0.5, xlab = "Trialnumber", ylab="RT")
+points(aggregate(RT ~ Trialnumber, data= Data[Data$RT>0,], mean), col = "red", pch=16, cex=0.5)
+```
+
+### Does RT predict number of intransitive choices? 
+
+No (as expected). Also shows the significantly higher number of intransitivies for the MTL group.
+
+```{r}
+#Does RT predict number of intransitive choices? No (as expected).
+RT.sub <- aggregate(RT ~ f.id, data=Data, mean)
+Intransitive <- Intransitive[order(Intransitive$f.id),]
+Intransitive$Mean.RT <- RT.sub$RT
+rm(RT.sub)
+m3 <- glm(Intrans ~ Group + Mean.RT, data=Intransitive)
+summary(m3)
+```
+
+### Correlation of RT and number of intransitive choices by group
+
+```{r}
+#Correlation of RT and number of intransitive choices by group
+cor(Intransitive$Mean.RT[Intransitive$Group == "C"],
+         Intransitive$Intrans[Intransitive$Group == "C"])
+cor(Intransitive$Mean.RT[Intransitive$Group == "ETP"],
+         Intransitive$Intrans[Intransitive$Group == "ETP"])
+cor(Intransitive$Mean.RT[Intransitive$Group == "MTL"],
+         Intransitive$Intrans[Intransitive$Group == "MTL"])
+```
+
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+par(mfrow=c(1,1))
+ggplot(data=Intransitive, aes(Mean.RT, Intrans))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="red", formula = y ~ x) +
+  facet_grid(.~Group)+
+  theme_classic()
+```
+
+NOTE: Problem with data
+--------------------------------------
+
+There are trials where RT<0.  
+
+They constitute 1.19 % of all trials.  
+
+67.5 of these timed out trials are in the MTL group.
+
+```{r}
+sum(Data$RT<0)
+sum(Data$RT<0)/nrow(Data)
+all.data$Error <- ifelse(all.data$RT<0, 1,0)
+prop.table(table(all.data$Error, all.data$Group),1)
+```
+
+***Excluding these trials completely throws off the intransitivity calculation.***
+
+Participants from all groups missed at least one trial like this. 
+But the MTL is group is responsible for 67.5% of it.
+In fact, one participant (8146) is responsible for 32%. (This participant does not have RT>0 for 66/190 - 34% of trials)
+
+```{r eval=FALSE, echo=FALSE}
+### Subject numbers (there are 190 trials for everyone)
+sort(unique(Data$Subject))
+length(unique(Data$Subject))
+```
+
+### `r nrow(as.data.frame(table(Data[which(Data$RT<0), "SubjectID"])))` participants with trials where RT<0
+
+```{r}
+table(Data[which(Data$RT<0), "SubjectID"])
+prop.table(table(Data[which(Data$RT<0), "Group"]))
+```
+
+### How many of these trials are involved in intransitives?
+
+```{r}
+all.data$ErrAndIntrans <- ifelse(all.data$Intrans ==1 & all.data$Error == 1, 1, 0)
+sum(all.data$ErrAndIntrans)
+```
+
+#### Which group made missed most trials?
+
+The MTL group.
+
+```{r}
+aggregate(Missed ~ Group, data=Intransitive, sum)
+```
+
+Most people from all groups missed 0 or 1 trials (out of 190).
+Nobody in the C group missed more than 3 trials.
+Nobody in the ETP group missed more than 8 trials.
+There is one participant in the MTL group who has missed 66 trials.
+Without this participant MTL group still has most missed trials but not by this much.
+
+(For table below: rows are number of missed trials NOT INTRANSITIVIES, cols are number of people from each group)
+
+```{r}
+table(Intransitive$Missed, Intransitive$Group)
+```
+
+PercentMissed: Trials out of 190 that have RT<0
+
+PercentIntr: Triplets with intransitivity out of 1140 possible triplets
+
+PercentMissedTrialsAffect: Triplets where 1 or more pair has RT<0
+
+PIntrError: Intransitive triplets that have 1 or more pairs with RT<0
+
+```{r}
+aggregate(PercentIntr ~ Group, data=Intransitive, mean)
+aggregate(PercentMissedTrialsAffect ~ Group, data=Intransitive, mean)
+aggregate(PIntrError ~ Group, data=Intransitive, mean)
+```
+
+So for example:
+One participant missed 2 trials.(2/190*100 = 1.05%)  
+
+Without accounting for these and assuming 1140 "clean" triplets we counted 25 intransitive choices (2.2%).  
+
+These two trials affected 36 triplets out of 1140 (36/1140*100 = 3.16%). Note, this number could have been less.  
+
+4 of the triplets that we had counted as intransitive included at least one missed trial (4/25*100 = 16%).  
+
+So for these trials we can't claim intransitivity.   
+
+We also can't claim no intransitivity for the remaining 32 triplets.  
+
+If we exclude all 36 affected triplets we would have 1104 clean triplets and 21 of these would be clean intransitives so the percentage of intransitive choices would be 21/1104*100 = 1.9 %.
+
+```{r}
+Intransitive$CleanTriplets <- 1140 - Intransitive$Err
+Intransitive$CleanIntr <- Intransitive$Intrans - Intransitive$ErrIntrans
+Intransitive$CleanPercentIntr <- Intransitive$CleanIntr/Intransitive$CleanTriplets *100
+```
+
+Looking at the descriptives again based on this re-calculation:
+
+***All values are slightly smaller but the significant difference between C and MTL holds***
+
+```{r}
+summary(Intransitive$CleanIntr)
+aggregate(CleanIntr ~ Group, data=Intransitive, mean)
+aggregate(CleanIntr ~ Group, data=Intransitive, median)
+aggregate(CleanPercentIntr ~ Group, data=Intransitive, mean)
+aggregate(CleanPercentIntr ~ Group, data=Intransitive, median)
+Aov.cleanint <- aov(CleanPercentIntr ~ Group, data = Intransitive)
+summary(Aov.cleanint) 
+TukeyHSD(Aov.cleanint, conf.level = 0.95)
+pairwise.t.test(Intransitive$CleanPercentIntr, Intransitive$Group, p.adjust = "bonferroni") 
+```
+
+```{r}
+kruskal.test(CleanIntr ~ as.factor(Group), data=Intransitive)
+pairwise.wilcox.test(Intransitive$CleanIntr, Intransitive$Group, p.adj="bonferroni", exact=F)
+```
+
+Same as above.
+
+```{r}
+#Does RT predict number of intransitive choices? No (as expected).
+Data.clean <- Data[Data$RT>=0,]
+RT.sub.clean <- aggregate(RT ~ f.id, data=Data.clean, mean)
+Intransitive <- Intransitive[order(Intransitive$f.id),]
+Intransitive$Mean.RT.c <- RT.sub.clean$RT
+rm(RT.sub.clean)
+m3.c <- glm(CleanIntr ~ Group + Mean.RT, data=Intransitive)
+summary(m3.c)
+```
+
+```{r}
+#Correlation of RT and number of intransitive choices by group
+cor(Intransitive$Mean.RT.c[Intransitive$Group == "C"],
+         Intransitive$CleanIntr[Intransitive$Group == "C"])
+cor(Intransitive$Mean.RT.c[Intransitive$Group == "ETP"],
+         Intransitive$CleanIntr[Intransitive$Group == "ETP"]) #This decreases most.
+cor(Intransitive$Mean.RT.c[Intransitive$Group == "MTL"],
+         Intransitive$CleanIntr[Intransitive$Group == "MTL"])
+```
+
+```{r warning=FALSE, echo=FALSE, message=FALSE, eval=FALSE}
+par(mfrow=c(1,1))
+ggplot(data=Intransitive, aes(Mean.RT.c, CleanIntr))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="red", formula = y ~ x) +
+  facet_grid(.~Group)+
+  theme_classic()
+```
+
+Notes and TO DO's since last meeting with Eric:
+--------------------------------------
+
+1. Timing out still could be an error that should be counted some other way.
+
+2. Ways to add power to the current dataset:
+  * Running more subjects
+  * Error with the two missing participants: Data files were corrupt. Nothing recovered.
+
+3. Brand information: How should this be included in an HLM? It is a source of variance.
+
+4. What do Kruskell Wallace tests show?
+  * [http://yatani.jp/HCIstats/KruskalWallis] (http://yatani.jp/HCIstats/KruskalWallis)
+  * Kruskal-Wallis is basically a non-parametric version of ANOVA. Thus, if you have the data which contain more than two groups to compare, and your data are ordinal or your data cannot assume the normality, Kruskal-Wallis is the way to go. Fortunately, in R, the way to run a Kruskal-Wallis test is similar to the way to run an ANOVA test.
+  * Similar to ANOVA, you need to do a post-hoc test after Kruskal-Wallis and Friedman if you find a significant effect. As we do multiple t tests with Bonferroni or Holm correction, we can do Mann-Whitney or Wilcoxon tests with the same corrections. If you have unpaired (factorial, or non-repeated-measure) data, you can do pairwise comparison with a Mann-Whitney test.
+  * If you have any tied value in your data, you can only calculate an approximate p value. (You can try to calculate the exact p value by changing the option to "exact=T", but will get warnings if you have ties.) Unfortunately, it seems there is no way to get this around, but in many cases, this approximate p value is close enough to the exact p value, and will not cause a lot of troubles. But if you really want to be very precise, you can calculate the exact p value by using functions in coin package, and manually apply Bonferroni corrections to the p values you have gained by using p.adjust() function.
+
+5. What was used in Camille et al. (2011):
+  * Participants made made choices in 11 choice sets between bundles consisting of 3 to 7 options.
+  * Each bundle was implied a restriction in price and income. (so each bundle falls on a single line defined by the number of bars and juice boxes. Making choices that have unique slopes - not matching the slope of any other choice constitutes an intransitivity).
+  * Transitivy was calculated using methods from economics (possible due to the restrictions in the design of the choice sets) that I do not think can be applied to this design.
+  * Overall VMF lesion patients made more violations to transitivity in number and severity compared to normal controls.
+
+6. Order effects
+  * Analysis of intransitivities from subject level to trial level (how many times was trial X involved in intransitivity?)
+  * Test linear and quadratic order variables of trial in 190
+  * Frequency of intransitivities over time
+  * Give 1 to all the three trials that are involved in an intransitivity
+  * Note: Each pair can be involved in max 18 intransitivities
+  * There are no overall trial number effects. But there are large individual differences. (seen in individual plots).
+  * For some people these are significant. But in different directions so they cancel out.
+  * I did not find a pattern on who these are significant for (checked for group only) but if you can think of other interactions that I should look in to more carefully I can do that.
+
+```{r message=FALSE, eval=FALSE, echo=FALSE}
+
+# For one person model
+# summary(lm(Intrans ~ Trialnumber + TrialQuad, data=test.data))
+# summary(lm(Intrans ~ c.Trialnumber + c.TrialQuad, data=test.data))
+
+# # Plot intransitivities by trial number 
+# ggplot(data=all.data, aes(x=Trialnumber, y=Intrans))+
+#   geom_smooth()+
+#   theme_classic()
+
+# ggplot(data=all.data[all.data$Subject %in% c(119, 306, 3256, 3574, 3777, 6194),], aes(x=Trialnumber, y=IntransFreq))+
+#   geom_smooth()+
+#   facet_wrap(~ f.id) +
+#   theme_classic()
+```
+
+
+```{r message=FALSE}
+# For the quadratic term the sign is positive when the model is convex and negative when the curve is concave.
+
+# Multilevel model on trial level checking for effect of subject, group and trial
+
+# Also note significant group effects. MTL differs significantly more from the control group but ETL does not 
+# m4 <- lmer(Intrans ~ (Group|f.id) + c.Trialnumber*c.TrialQuad*Group, data=all.data) #Wrong DV
+m4 <- lmer(IntransFreq ~ (Group|f.id) + c.Trialnumber*c.TrialQuad*Group, data=all.data)
+summary(m4)
+
+m5 <- lmer(Intrans ~ (Group|f.id) + c.Trialnumber*c.TrialQuad*Group, data=all.data)
+summary(m5)
+
+all.data <- ddply(all.data, .(f.id), mutate, PofIntrans = Intrans/sum(Intrans))
+
+m6 <- lmer(PofIntrans ~ (Group|f.id) + c.Trialnumber*c.TrialQuad*Group, data=all.data)
+summary(m6)
+
+plotLMER.fnc (m5, pred = "c.Trialnumber", intr = list("Group", c("C", "ETP", "MTL"), "end", list(c("red", "green", "blue"), c(1,1,1))))
+
+aggregate(Intrans ~ Group, data = all.data, FUN=mean)
+
+ggplot(data=all.data, aes(x = Trialnumber, y = Intrans, group = Group, col = Group))+
+  geom_smooth() +
+  theme_classic()+
+  ylab("Number of Times involved in Intransitivity") +
+  xlab("Trial Number") +
+  scale_color_discrete(breaks = c("C", "ETP", "MTL"),labels = c("Control", "ETL", "MTL"))
+
+plotLMER.fnc(m5, pred = "c.Trialnumber", intr = list("Group", c("C", "ETP", "MTL"), 'end'), addToExistingPlot = F)
+
+# pred.m5 <- predict(m5)
+# 
+# all.data2 <- cbind(all.data, pred.m5)
+
+# Plot random effects
+dotplot(ranef(m5, condVar=TRUE))
+
+```
+
+7. Testing Luce choice model
+  * A model with subject + 190 pairs + brand
+  * If there aren't any intransitivities this should fit perfectly
+  * I don't think I'm doing the right thing here..  
+  * According to these slides [http://www.r-project.org/conferences/useR-2008/slides/Wickelmaier.pdf] (http://www.r-project.org/conferences/useR-2008/slides/Wickelmaier.pdf)
+
+```{r message=FALSE, echo=FALSE, eval=FALSE}
+#Old model. Not sure what it says
+# summary(lmer(Intrans ~ (Group|f.id) + c.Trialnumber + c.TrialQuad + Group + as.factor(Choice.image), data=all.data))
+````
+
+### Prepare data for eba package
+
+```{r eval=FALSE}
+Data$Choice.left0.right1 <- ifelse(Data$Choice_1left_4right == 1, 0, 1)
+Data2 <- Data
+Data2$chose1 <- ifelse(Data2$Choice.image == 1, 1, 0)
+Data2$chose2 <- ifelse(Data2$Choice.image == 2, 1, 0)
+Data2$chose3 <- ifelse(Data2$Choice.image == 3, 1, 0)
+Data2$chose4 <- ifelse(Data2$Choice.image == 4, 1, 0)
+Data2$chose5 <- ifelse(Data2$Choice.image == 5, 1, 0)
+Data2$chose6 <- ifelse(Data2$Choice.image == 6, 1, 0)
+Data2$chose7 <- ifelse(Data2$Choice.image == 7, 1, 0)
+Data2$chose8 <- ifelse(Data2$Choice.image == 8, 1, 0)
+Data2$chose9 <- ifelse(Data2$Choice.image == 9, 1, 0)
+Data2$chose10 <- ifelse(Data2$Choice.image == 10, 1, 0)
+Data2$chose11 <- ifelse(Data2$Choice.image == 11, 1, 0)
+Data2$chose12 <- ifelse(Data2$Choice.image == 12, 1, 0)
+Data2$chose13 <- ifelse(Data2$Choice.image == 13, 1, 0)
+Data2$chose14 <- ifelse(Data2$Choice.image == 14, 1, 0)
+Data2$chose15 <- ifelse(Data2$Choice.image == 15, 1, 0)
+Data2$chose16 <- ifelse(Data2$Choice.image == 16, 1, 0)
+Data2$chose17 <- ifelse(Data2$Choice.image == 17, 1, 0)
+Data2$chose18 <- ifelse(Data2$Choice.image == 18, 1, 0)
+Data2$chose19 <- ifelse(Data2$Choice.image == 19, 1, 0)
+Data2$chose20 <- ifelse(Data2$Choice.image == 20, 1, 0)
+
+#Separate choice data in to groups
+
+Data.mtl <- Data2[Data2$Group=="MTL",]
+Data.c <- Data2[Data2$Group=="C",]
+Data.etp <- Data2[Data2$Group=="ETP",]
+
+# Create three matrices tabulating pairwise counts
+
+test <- aggregate(Data.mtl[,15:34],by=list(id=Data.mtl$Trial),FUN="sum")
+# test <- aggregate(Data.mtl[,15:33],by=list(id=Data.mtl$Trial),FUN="sum")
+# library(reshape) #Done once
+# TM.m <- melt(TrialNumber[,c("Trial", "Paste")], id = c("Trial"))
+# TM.m <- TM.m[order(TM.m$Trial),]
+# TM.m$Ones <- rep(c(1,2),190)
+# TM.m <- TM.m[TM.m$Ones == 1,]
+#Add pair info to test
+test <- merge(TM.m[,c("Trial", "value")],test, by.x = "Trial", by.y = "id")
+
+matrix <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("chose1", "chose2", "chose3", "chose4", "chose5", "chose6", "chose7", "chose8", "chose9", "chose10", "chose11", "chose12", "chose13", "chose14", "chose15", "chose16", "chose17", "chose18", "chose19", "chose20"),
+                                                     c("opp1", "opp2", "opp3", "opp4", "opp5", "opp6", "opp7", "opp8", "opp9", "opp10", "opp11", "opp12", "opp13", "opp14", "opp15", "opp16", "opp17", "opp18", "opp19", "opp20")))
+
+for(i in 1:20){
+  matrix[i,i] <- 0
+}
+
+ref <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"),
+                                                     c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20")))
+
+ref <- as.data.frame(ref)
+
+for(i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    ref[i, j] <- paste(row.names(ref)[i], names(ref)[j], sep="")
+  }
+}
+
+for (i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    if(is.na(matrix[i,j] == T)){pair <- ref[i, j]
+      test.row <- which(test$value == ref[i, j])
+      test.chose <- i + 2 
+      test.opp <- j + 2
+      matrix[i, j] <- test[test.row, test.chose]
+      matrix[j, i] <- test[test.row, test.opp]}
+  }
+}
+
+matrix.mtl <- matrix
+
+test <- aggregate(Data.etp[,15:34],by=list(id=Data.etp$Trial),FUN="sum")
+
+test <- merge(TM.m[,c("Trial", "value")],test, by.x = "Trial", by.y = "id")
+
+matrix <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("chose1", "chose2", "chose3", "chose4", "chose5", "chose6", "chose7", "chose8", "chose9", "chose10", "chose11", "chose12", "chose13", "chose14", "chose15", "chose16", "chose17", "chose18", "chose19", "chose20"),
+                                                     c("opp1", "opp2", "opp3", "opp4", "opp5", "opp6", "opp7", "opp8", "opp9", "opp10", "opp11", "opp12", "opp13", "opp14", "opp15", "opp16", "opp17", "opp18", "opp19", "opp20")))
+
+for(i in 1:20){
+  matrix[i,i] <- 0
+}
+
+ref <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"),
+                                                     c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20")))
+
+ref <- as.data.frame(ref)
+
+for(i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    ref[i, j] <- paste(row.names(ref)[i], names(ref)[j], sep="")
+  }
+}
+
+for (i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    if(is.na(matrix[i,j] == T)){pair <- ref[i, j]
+      test.row <- which(test$value == ref[i, j])
+      test.chose <- i + 2 
+      test.opp <- j + 2
+      matrix[i, j] <- test[test.row, test.chose]
+      matrix[j, i] <- test[test.row, test.opp]}
+  }
+}
+
+matrix.etp <- matrix
+
+test <- aggregate(Data.c[,15:34],by=list(id=Data.c$Trial),FUN="sum")
+
+test <- merge(TM.m[,c("Trial", "value")],test, by.x = "Trial", by.y = "id")
+
+matrix <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("chose1", "chose2", "chose3", "chose4", "chose5", "chose6", "chose7", "chose8", "chose9", "chose10", "chose11", "chose12", "chose13", "chose14", "chose15", "chose16", "chose17", "chose18", "chose19", "chose20"),
+                                                     c("opp1", "opp2", "opp3", "opp4", "opp5", "opp6", "opp7", "opp8", "opp9", "opp10", "opp11", "opp12", "opp13", "opp14", "opp15", "opp16", "opp17", "opp18", "opp19", "opp20")))
+
+for(i in 1:20){
+  matrix[i,i] <- 0
+}
+
+ref <- matrix(data = NA, nrow = 20, ncol = 20, dimnames = list(c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"),
+                                                     c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20")))
+
+ref <- as.data.frame(ref)
+
+for(i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    ref[i, j] <- paste(row.names(ref)[i], names(ref)[j], sep="")
+  }
+}
+
+for (i in 1:nrow(ref)){
+  for(j in 1:ncol(ref)){
+    if(is.na(matrix[i,j] == T)){pair <- ref[i, j]
+      test.row <- which(test$value == ref[i, j])
+      test.chose <- i + 2 
+      test.opp <- j + 2
+      matrix[i, j] <- test[test.row, test.chose]
+      matrix[j, i] <- test[test.row, test.opp]}
+  }
+}
+
+matrix.c <- matrix
+```
+
+### Fitting BTL models using the eba package  
+
+Not sure what they are saying..
+Checked for number of transitivities (fitting BTL separately for group), comparing the three models and group differences (using the built in function) but not sure what the results are.
+
+```{r}
+library("eba")
+
+strans(matrix.mtl)
+strans(matrix.etp)
+strans(matrix.c)
+
+btl.mtl <- eba(matrix.mtl)
+summary(btl.mtl)
+
+btl.etp <- eba(matrix.etp)
+summary(btl.etp)
+
+btl.c <- eba(matrix.c)
+summary(btl.c)
+
+anova(btl.mtl, btl.etp, btl.c)
+anova(btl.c, btl.etp, btl.mtl)
+
+array <- array(c(matrix.mtl, matrix.etp, matrix.c), c(20, 20, 3))
+
+group.test(array)
+```
+
+### How many times was each bar chosen/ Effect on intransitivity
+
+
+```{r}
+agg.Data2 <- aggregate(Data2[,c("chose1","chose2", "chose3", "chose4","chose5", "chose6", "chose7","chose8", "chose9", "chose10","chose11", "chose12","chose13", "chose14","chose15", "chose16", "chose17","chose18", "chose19", "chose20")], by = list(f.id = Data2$SubjectID, Group = Data2$Group), FUN = "sum")
+
+melt.Data2 <- melt(agg.Data2, id = c("f.id", "Group"))
+#Significant differences in how often each bar is preferred
+summary(aov(value ~ variable, data = melt.Data2))
+print(model.tables(aov(value ~ variable, data = melt.Data2), digits=3))
+
+#But posthoc hard to say which is preffered most 
+# TukeyHSD(aov(value ~ variable, data = melt.Data2), conf.level = 0.95)
+pairwise.t.test(melt.Data2$value, melt.Data2$variable, p.adjust = "bonferroni") 
+
+#On trial level does the chosen bar predict how many times a trial is involved in intransitivities?
+summary(lm(Intrans ~ as.factor(Choice.image) + Group, data=all.data))
+#Yes but hard to say what this could mean because the bars that apparently have an effect on the number of intransitivies are not those that are chosen most or least often or seem to have any other obvious property looking at how often they have been chosen
+aggregate(value ~ variable, data=melt.Data2, mean)
+table(all.data$Choice.image)
+```
