@@ -5,3 +5,414 @@ date: "January 19, 2015"
 output: html_document
 ---
 
+```{r}
+load("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityDataOrgWorkspace021115.RData")
+
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(plyr)
+library(dplyr)
+```
+
+Group differences in intransitivies
+--------------------------------------------------------
+
+### Old approach: Looking at the two tasks separately (control vs test task)
+
+```{r}
+#Summary statistics for both tasks
+#Raw numbers of intransitivities
+aggregate(CleanIntr ~ Group+Task, data=both.Intransitive, mean)
+aggregate(CleanIntr ~ Group+Task, data=both.Intransitive, median)
+aggregate(CleanIntr ~ Group+Task, data=both.Intransitive, sd)
+
+#Percentage of intransitivities
+aggregate(CleanPercentIntr ~ Group+Task, data=both.Intransitive, mean)
+aggregate(CleanPercentIntr ~ Group+Task, data=both.Intransitive, median)
+aggregate(CleanPercentIntr ~ Group+Task, data=both.Intransitive, sd)
+
+ggplot(data = both.Intransitive, aes(x = Group, y = CleanPercentIntr, fill = Task))+
+  geom_boxplot()+
+  theme_classic()
+```
+
+The first thing we could do would be a one-way anova for both tasks.
+
+```{r}
+summary(aov(CleanPercentIntr ~ Group, data = both.Intransitive[both.Intransitive$Task == "choice",]))
+
+summary(aov(CleanPercentIntr ~ Group, data = both.Intransitive[both.Intransitive$Task == "numbers",]))
+
+summary(aov(CleanPercentIntr ~ Group*Task, data = both.Intransitive))
+```
+
+We would get a sig group difference in the choice task, non-sig diff in the numbers task looking at them separately and also a group task interaction if we were looking at them together. 
+
+**PROBLEM: NORMALITY ASSUMPTION IS VIOLATED**
+
+The distribution of effect sizes within tasks is not normal for either task. This is why we can't use ANOVA to test for group differences within tasks. 
+
+```{r} 
+ggplot(both.Intransitive[both.Intransitive$Task == "numbers",], aes(CleanPercentIntr))+
+  geom_histogram()+
+  theme_classic()+
+  ggtitle("Distribution of effect size for numbers task")
+shapiro.test(both.Intransitive[both.Intransitive$Task == "numbers",]$CleanPercentIntr)
+
+ggplot(both.Intransitive[both.Intransitive$Task == "choice",], aes(CleanPercentIntr))+
+  geom_histogram()+
+  theme_classic()+
+  ggtitle("Distribution of effect size for choice task")
+shapiro.test(both.Intransitive[both.Intransitive$Task == "choice",]$CleanPercentIntr)
+```
+
+**SOLUTION?: NON-PARAMETRIC TEST?**
+
+For choice task: sig group differences. MTL higher than both groups.
+
+```{r}
+kruskal.test(CleanIntr ~ Group, data=both.Intransitive[both.Intransitive$Task == "choice",])
+
+pairwise.wilcox.test(both.Intransitive[both.Intransitive$Task == "choice",]$CleanIntr, both.Intransitive[both.Intransitive$Task == "choice",]$Group, p.adj="bonferroni", exact=F)
+```
+
+For numbers task: Sig group differences here too (not preferred). MTL higher than controls.
+
+```{r}
+kruskal.test(CleanIntr ~ Group, data=both.Intransitive[both.Intransitive$Task == "numbers",])
+
+pairwise.wilcox.test(both.Intransitive[both.Intransitive$Task == "numbers",]$CleanIntr, both.Intransitive[both.Intransitive$Task == "numbers",]$Group, p.adj="bonferroni", exact=F)
+```
+
+**PROBLEM 1: WE CAN'T CHECK THE INTERACTION OF GROUP BY TASK KRUSKAL-WALLIS**
+
+**PROBLEM 2: UNEQUAL VARIANCE IN DISTRIBUTION OF EFFECT SIZE BETWEEN THE TASKS**
+
+As the Bartlett test and the plot shows variance in effect size is not independent of task.
+
+
+```{r message=FALSE}
+#The variances between the two tasks are very different!
+var(both.Intransitive[both.Intransitive$Task == "numbers",]$CleanPercentIntr)
+var(both.Intransitive[both.Intransitive$Task == "choice",]$CleanPercentIntr)
+
+#Significantly so? YES! (the more important/problematic issue is this)
+
+#The distribution of the effect size is not independent of the task!
+bartlett.test(CleanPercentIntr ~ Task, data = both.Intransitive)
+
+ggplot(both.Intransitive, aes(CleanPercentIntr, fill = Task))+
+  geom_histogram()+
+  theme_classic()
+```
+
+**SOLUTION: TRANSFORM DV AND RUN REGRESSIONS**
+
+Which is best? Go with log..
+
+Log transform spreads the variance in the numbers enough to make the difference in variance almost independent of task.
+
+```{r}
+# bartlett.test(sqrt(CleanPercentIntr) ~ Task, data = both.Intransitive) #marginal
+
+bartlett.test(log(CleanPercentIntr + 1) ~ Task, data = both.Intransitive) #even less marginal
+
+# bartlett.test(((-1)/(CleanPercentIntr+0.001)) ~ Task, data = both.Intransitive) #Doesn't work
+
+ggplot(both.Intransitive, aes(log(CleanPercentIntr + 1), fill = Task))+
+  geom_histogram()+
+  theme_classic()
+```
+
+Step back and think about what you are interested in. First plot the data:
+
+```{r}
+#GOOD PLOT!
+se <- function(x) sd(x)/sqrt(length(x))
+
+plot.Intransitive.df <- ddply(both.Intransitive, .(Task, Group), summarise,
+      MeanCleanPercentIntr = mean(CleanPercentIntr, na.rm=T),
+      SeCleanPercentIntr = se(CleanPercentIntr),
+      eb.low = MeanCleanPercentIntr - SeCleanPercentIntr,
+      eb.high = MeanCleanPercentIntr + SeCleanPercentIntr)
+plot.Intransitive.df
+
+#With color
+limits <- aes(ymax = plot.Intransitive.df$eb.high, ymin=plot.Intransitive.df$eb.low)
+#Error bars are SEMs
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task, col = Task))+
+  geom_point(aes(shape =Task))+
+  geom_line()+
+  geom_errorbar(limits, width=0.25)+
+  theme_classic()+
+  ylab("Mean Percent Intransitive")
+
+```{r eval=FALSE}
+#For poster
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task))+
+  geom_point(aes(shape = Task))+
+  geom_line(aes(linetype = Task))+
+  geom_errorbar(limits, width=0.25)+
+  ylab("Mean Percentage of Intransitivities")+
+  xlab("")+
+  theme_classic()+
+  theme(axis.title.y = element_text(face="bold", size = 20),
+           axis.text.x  = element_text(face="bold", size = 20),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20))
+```
+
+Looking at the plot what are we interested in? Whether the difference between the red and blue curves is the same for all groups. In other words: Is there a significant intereaction between task and group, i.e. is the effect of changing the task same for the MTL group as it is for the control groups.
+
+(**Using transformed DVs!**): The interactive model is the best fitting model!
+
+```{r}
+gm1a <- lm(log(CleanPercentIntr+1) ~ Task, both.Intransitive)#; summary(gm1a)
+gm1b <- lm(log(CleanPercentIntr+1) ~ Group, both.Intransitive)# ; summary(gm1b)
+gm2 <- lm(log(CleanPercentIntr+1) ~ Group+Task, both.Intransitive)# ; summary(gm2)
+gm3 <- lm(log(CleanPercentIntr+1) ~ Group*Task, both.Intransitive)# ; summary(gm3)
+#Interactive model is always better!
+anova(gm1a, gm2, gm3)
+anova(gm1b, gm2, gm3)
+```
+
+So what does it say? Look at the contrasts first!
+
+```{r}
+contrasts(both.Intransitive$Task) 
+contrasts(both.Intransitive$Group)
+summary(gm3)
+```
+
+b0 = mean intrans for both tasks for the C group is >0 (not interesting)
+b1 = ETL group doesn't make sig more intrans in CHOICE task! (good) - simple effect
+b2 = MTL group DOES make sig more intrans in CHOICE task! (good) - simple effect
+b3 = C group makes sig less intrans in NUMBERS task! (not surprising, easy task)
+b4 = Is the effect of task in ETL group same as C. Yes.
+b5 = Is the effect of task in MTL group same as C. Marginally no. 
+
+**PROBLEM: These are not orthogonal contrasts and is comparing both groups to Healthy controls only!**
+
+**SOLUTION:ORTHOGONALIZE CONTRASTS**
+
+If we change the contrasts and make them orthogonal there would be no overlapping variance (and seems like answer our question of interest perhaps slightly more indirectly but possibly more fully). We would first compare the ETL group to the C group and then the MTL group to BOTH CONTROL GROUPS!
+
+```{r}
+#Change the contrasts, make them orthogonal
+both.Intransitive.contrast <- both.Intransitive
+contrasts(both.Intransitive.contrast$Group) <- cbind(c(-1,1, 0), c(-1, -1, 2))
+contrasts(both.Intransitive.contrast$Task) <- c(-1, 1)
+
+contrasts(both.Intransitive.contrast$Task)
+contrasts(both.Intransitive.contrast$Group)
+
+gm3.con <- lm(log(CleanPercentIntr+1) ~ Group*Task, both.Intransitive.contrast) 
+summary(gm3.con)
+```
+
+What does the model say now:
+
+b0 = Unweighted grand mean (mean of group means) (sum(aggregate(CleanPercentIntr ~ Group, both.Intransitive.contrast, mean)[,2])/3)
+b1 = Total group effect for ETL compared to healthy controls only (quantified)
+b2 = Total group effect for MTL compared to both control groups (quantified)
+b3 = Total task effect
+b4 = Is the effect of task change same for ETL and C groups? (yes.)
+b5 = Is the effect of task change same for MTL vs both control groups? (No!)
+
+Looking at group differences within tasks would be simple effects from this perspective. We can look at them again (though I do not think they are necessary to report).
+
+```{r}
+#Simple effect of group 
+#Create dummy variables for simple effects instead of changing the contrast in the df
+both.Intransitive.contrast$number <- ifelse(both.Intransitive.contrast$Task == "numbers",1,0)
+both.Intransitive.contrast$choice <- ifelse(both.Intransitive.contrast$Task == "choice",1,0)
+#Simple effect of group for choice task: MTL (Group 2) significantly higher!
+gm3.con.sc <- lm(log(CleanPercentIntr+1) ~ Group*number, both.Intransitive.contrast); summary(gm3.con.sc) 
+#Simple effect of group for number task: ETL (Group 1) significantly (marg?) higher
+gm3.con.sn <- lm(log(CleanPercentIntr+1) ~ Group*choice, both.Intransitive.contrast); summary(gm3.con.sn) 
+```
+
+The simple effects suggest that the MTl group had a significantly higher percentage of intransitivities in the choice task compared to both control groups and the ETL group has sig more intransitivities in the numbers task compared to the healthy controls (only).
+
+*PROBLEM: REPEATED MEASURES*
+
+Two measures from each participant. Tasks are not between subjects.
+
+*SOLUTION: MIXED MODEL*
+
+Checking if mixed model necessary: Yes it is.  
+
+```{r}
+# summary(aov(log(CleanPercentIntr+1) ~ Group*Task + Error(f.id/Task) + Group, both.Intransitive))
+#Within group var looks very small compared to between groups?
+
+gm3.lmer.con <- lmerTest::lmer(log(CleanPercentIntr+1) ~ Group*Task + (1|f.id), both.Intransitive.contrast, REML = F)
+
+summary(gm3.lmer.con)
+
+x2 = -2*logLik(gm3.con) +2*logLik(gm3.lmer.con)
+x2
+pchisq(x2, df=1, lower.tail=F)
+
+#Simple effects in lmer of group in numbers task
+gm3.lmer.con.sn <- lmerTest::lmer(log(CleanPercentIntr+1) ~ Group*choice + (1|f.id), both.Intransitive.contrast)
+summary(gm3.lmer.con.sn) 
+#(You can see how the contrasts are not orthogonal in the correlation of fixed effects)
+```
+
+### CONCLUSION
+
+Running a linear mixed model with orthogonal contrasts is the most appropriate analysis and reveals a significant group task interaction in the percentage of intransitivities. Accordingly the MTL group had a higher percentage of intransitivities in the choice task than the numbers task compared to both control groups, while the difference between the percentage of intransitivities did not differ between tasks between the health controls and the ETL group.
+
+SOM Analyses
+------------------------------------------------------
+
+### Response times
+
+```{r}
+choice2.trial.data$Task <- "choice"
+numbers.trial.data$Task <- "numbers"
+
+RT.df <- rbind(choice2.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")], numbers.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")])
+RT.df$Task <- as.factor(RT.df$Task)
+
+ggplot(data = RT.df[RT.df$RT>0,], aes(x = Trialnumber, y = RT, group = Group, col = Group))+
+  geom_smooth(method = "loess")+
+  theme_classic()+
+  facet_grid(~Task)+
+  xlab("Trial number")
+
+rt.lmer1 <- lmerTest::lmer(RT ~ Group*Task*Trialnumber + (1|f.id), data = RT.df[RT.df$RT>0,])
+
+#Three way interaction is sig better..
+# rt.lmer2 <- lmerTest::lmer(RT ~ Group*Task + Trialnumber + (1|f.id), data = RT.df[RT.df$RT>0,])
+
+# anova(rt.lmer1, rt.lmer2)
+
+#Don't need random slopes for groups
+# rt.lmer3 <- lmerTest::lmer(RT ~ Group*Task*Trialnumber + (Group|f.id), data = RT.df[RT.df$RT>0,])
+# 
+# anova(rt.lmer1, rt.lmer3)
+
+summary(rt.lmer1)
+
+aggregate(RT ~ Group + Task, data = RT.df[RT.df$RT>0,], FUN = mean)
+
+rm(RT.df)
+```
+
+### Intransitivities by groups
+
+(see above for rest of the stats in this section (e.g. model comparison for lmer and Bartlett test))
+
+```{r}
+summary(choice2.trial.data$IntransTripleCounted)
+sd(choice2.trial.data$IntransTripleCounted)
+
+summary(both.Intransitive$CleanIntr[both.Intransitive$Task == "choice"])
+sd(both.Intransitive$CleanIntr[both.Intransitive$Task == "choice"])
+```
+
+### Preference for side of computer screen
+
+```{r}
+left.df <- rbind(choice2.trial.data[,c("f.id", "Group", "RT","Choice.left1.right0", "Task", "IntransTripleCounted")], numbers.trial.data[,c("f.id", "Group", "RT","Choice.left1.right0", "Task", "IntransTripleCounted")])
+left.df$Task <- as.factor(left.df$Task)
+
+mean(left.df$Choice.left1.right0[left.df$RT>0], na.rm=T)
+aggregate(Choice.left1.right0 ~ Group*Task, data = left.df[left.df$RT>0,], mean)
+
+se <- function(x) sd(x, na.rm=T)/sqrt(length(x))
+
+plot.left.df <- ddply(left.df[left.df$RT>0,], .(Task, Group), summarise,
+      MeanChoice.left1.right0 = mean(Choice.left1.right0, na.rm=T),
+      SeChoice.left1.right0 = se(Choice.left1.right0),
+      eb.low = MeanChoice.left1.right0 - SeChoice.left1.right0,
+      eb.high = MeanChoice.left1.right0 + SeChoice.left1.right0)
+plot.left.df
+
+#With color
+limits <- aes(ymax = plot.left.df$eb.high, ymin=plot.left.df$eb.low)
+#Error bars are SEMs
+ggplot(data = plot.left.df, aes(x = Group, y=MeanChoice.left1.right0, group = Task, col = Task))+
+  geom_point(aes(shape =Task))+
+  geom_line()+
+  geom_errorbar(limits, width=0.25)+
+  theme_classic()+
+  ylab("Mean Percent Left")
+
+summary(aov(Choice.left1.right0 ~ Group, data=left.df[left.df$RT>0 & left.df$Task == "choice",]))
+
+pairwise.t.test(left.df[left.df$RT>0 & left.df$Task == "choice",]$Choice.left1.right0, left.df[left.df$RT>0 & left.df$Task == "choice",]$Group, p.adjust = "bonferroni")
+
+left.lmer1 <- glmer(Choice.left1.right0 ~ Group*Task + (1|f.id), data = left.df[left.df$RT>0,], family = binomial)
+summary(left.lmer1)
+
+left.lmer2 <- lmerTest::lmer(IntransTripleCounted ~ Choice.left1.right0*Group + (1|f.id), data = left.df[left.df$RT>0 & left.df$Task == "choice",])
+summary(left.lmer2)
+left.lmer3 <- lmerTest::lmer(IntransTripleCounted ~ Choice.left1.right0*Group + (1|f.id), data = left.df[left.df$RT>0 & left.df$Task == "numbers",])
+summary(left.lmer3)
+```
+
+### Alternative explanations of (in)transitivity
+
+```{r}
+mem.lmer <- lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + c.Trialnumber*c.TrialQuad*Group, data=choice2.trial.data)
+
+summary(mem.lmer)
+
+aggregate(IntransTripleCounted ~ Group, data = choice2.trial.data, FUN=mean)
+
+#Plot S1
+ggplot(data=choice2.trial.data, aes(x = Trialnumber, y = IntransTripleCounted, group = Group, col = Group))+
+  geom_smooth(method = "loess") +
+  theme_classic()+
+  ylab("Number of Times involved in Intransitivity") +
+  xlab("Trial Number")
+```
+
+### Intransitivities and response times
+
+Wait for mediation.
+
+```{r eval=FALSE}
+choice2.trial.data$RT.quad[choice2.trial.data$RT>0] <- choice2.trial.data$RT^2[choice2.trial.data$RT>0]
+
+choice2.trial.data$RT.c <- choice2.trial.data$RT - mean(choice2.trial.data$RT[choice2.trial.data$RT>0])
+
+choice2.trial.data$RT.quad.c <- choice2.trial.data$RT.quad - mean(choice2.trial.data$RT.quad)
+
+a4 <- lmerTest::lmer(IntransTripleCounted ~ RT.c + RT.quad.c + Group + RT.c:Group + (1 | f.id), data=choice2.trial.data)
+summary(a4.lmerTest)
+
+a2 <- lmerTest::lmer(IntransTripleCounted ~ Group + (1 | f.id), data=choice2.trial.data)
+summary(a2)
+
+anova(a4, a2)
+
+# Don't think this plot is good for our claim on speed-accuracy trade-off
+ggplot(data = choice2.trial.data[choice2.trial.data$RT>500 & choice2.trial.data$RT<5001,], aes(x=RT, y = IntransTripleCounted, group = Group, col = Group))+
+  theme_classic()+
+  geom_smooth(method = "loess")+
+  ylab("Number of Times Involved in Intransitivitiy")+
+  xlim(0,5000)
+
+#Mediation?
+med.lmer.c <-  lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + Group +Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
+summary(med.lmer.c)
+
+med.lmer.a <- lmerTest::lmer(RT ~ (1|f.id) + Group + Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
+summary(med.lmer.a)
+
+med.lmer.b <- lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + Group + RT + Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
+summary(med.lmer.b)
+
+```
+
+### Data cleaning
+
+```{r}
+names(both.Intransitive)
+summary(both.Intransitive$CleanTriplets[both.Intransitive$Task == "choice"])/1140*100
+```
