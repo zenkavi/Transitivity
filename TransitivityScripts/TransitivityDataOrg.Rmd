@@ -247,9 +247,9 @@ comb.row.fn <- function (df, comb.row) {
   TrialB <- df$Trialnumber[k]
   TrialC <- df$Trialnumber[l]
   ThirdTrial <- max(TrialA, TrialB, TrialC)
-  PasteA <- numbers.Data$Paste[j]
-  PasteB <- numbers.Data$Paste[k]
-  PasteC <- numbers.Data$Paste[l]
+  PasteA <- df$Paste[j]
+  PasteB <- df$Paste[k]
+  PasteC <- df$Paste[l]
   # setup data to return
   ret.dat <- data.frame(A = comb.row$A, 
                         B = comb.row$B,
@@ -386,7 +386,7 @@ numbers.all.m <- melt(numbers.all[, c("f.id", "Group", "Intrans", "MisPress","Mi
 ```{r eval=FALSE}
 sum.na <- function(x){sum(x, na.rm=T)}
 
-numbers.all.ag.test <- aggregate(numbers.all.m[,c("Intrans", "MisPress","MisPressIntrans","Error","ErrorIntrans")], by = list(f.id = numbers.all.m$f.id, Group = numbers.all.m$Group, Trialnumber = numbers.all.m$value), FUN = "sum.na")
+numbers.all.ag <- aggregate(numbers.all.m[,c("Intrans", "MisPress","MisPressIntrans","Error","ErrorIntrans")], by = list(f.id = numbers.all.m$f.id, Group = numbers.all.m$Group, Trialnumber = numbers.all.m$value), FUN = "sum.na")
 ```
 
 **Merge Intransitivity info with rest of trial level data**
@@ -664,9 +664,9 @@ comb.row.fn <- function (df, comb.row) {
   TrialB <- df$Trialnumber[k]
   TrialC <- df$Trialnumber[l]
   ThirdTrial <- max(TrialA, TrialB, TrialC)
-  PasteA <- choice2.Data$Paste[j]
-  PasteB <- choice2.Data$Paste[k]
-  PasteC <- choice2.Data$Paste[l]
+  PasteA <- df$Paste[j]
+  PasteB <- df$Paste[k]
+  PasteC <- df$Paste[l]
   # setup data to return
   ret.dat <- data.frame(A = comb.row$A, 
                         B = comb.row$B,
@@ -901,5 +901,5 @@ str(both.triplet.data)
 both.triplet.data$Task <- as.factor(both.triplet.data$Task)
 
 #Save workspace
-save.image("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityDataOrgWorkspace021115.RData")
+save.image("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityDataOrgWorkspace052415.RData")
 ```

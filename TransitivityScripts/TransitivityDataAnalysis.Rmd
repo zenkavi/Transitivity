@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r}
-load("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityDataOrgWorkspace021115.RData")
+load("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityDataOrgWorkspace052415.RData")
 
 library(ggplot2)
 library(lme4)
@@ -397,6 +397,12 @@ ggplot(data = choice2.trial.data[choice2.trial.data$RT>500 & choice2.trial.data$
   geom_smooth(method = "loess")+
   ylab("Number of Times Involved in Intransitivitiy")+
   xlim(0,5000)
+
+ggplot(data = choice2.trial.data[choice2.trial.data$RT>500 & choice2.trial.data$RT<5001,], aes(x=RT, y = IntransTripleCounted))+
+  theme_classic()+
+  geom_smooth(method = "loess", color = "black")+
+  ylab("Number of Times Involved in Intransitivitiy")+
+  xlim(1000,5000)
 
 #Mediation?
 med.lmer.c <-  lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + Group +Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
