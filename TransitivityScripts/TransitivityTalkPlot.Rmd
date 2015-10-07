@@ -13,10 +13,10 @@ spearman.test(talk.plot.df$Hippocampal_Ratio, talk.plot.df$Intransitivity_Percen
 ggplot(talk.plot.df, aes(Hippocampal_Ratio, Intransitivity_Percent))+
   geom_point()+
   geom_smooth(method = "lm", color = "black")+
-  theme_classic()+
+  theme_bw()+
   ylab("Mean Percentage of Intransitivities")+
   xlab("Hippocampal Ratio")+
-  theme_classic()+
+  theme_bw()+
   theme(axis.title.y = element_text(face="bold", size = 20),
            axis.title.x  = element_text(face="bold", size = 20))
 ```
@@ -36,24 +36,24 @@ numbers.trial.data$num.diff <- abs(numbers.trial.data$Image_left - numbers.trial
 aggregate(num.diff ~ Group, FUN = var, numbers.trial.data)
 ggplot(numbers.trial.data, aes(Group, num.diff))+
   geom_boxplot(width = 0.5)+
-  theme_classic()+
+  theme_bw()+
   ylab("Difference in numbers")
 
 #The easier the decision (the bigger the difference in values) the faster all groups got
 #The control group appears faster compared to both lesion groups in the control task BUT this doesn't appear statistically significant in the regression
 p1 <- ggplot(numbers.trial.data, aes(num.diff, RT, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Difference between numbers (Difficulty)")+
   ylab("Response times")
-#Significant interactions show that the how RTs change with decision difficulty differs by group. Though they all get faster at easier decisions the MTL group is consistently slower
-summary(lmer(RT ~ num.diff * Group + (1|f.id), data = numbers.trial.data))
+#No significan interactions or group differences. All groups are faster the larger the difference between the numbers (i.e. the easier the decisions)
+summary(lmer(scale(RT) ~ scale(num.diff) * Group + (1|f.id), data = numbers.trial.data))
 
 #Difference in values and intransitivity
 #The lines are pretty flat. All the decisions seem pretty easy/equally likely to be involved in an intransitivity
 ggplot(numbers.trial.data, aes(num.diff, IntransTripleCounted, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Difference between numbers (Difficulty)")+
   ylab("Number of Intransitivities Trial is involved in")
 
@@ -78,16 +78,16 @@ numbers.trial.data$ProbIntr <- ifelse(is.na(numbers.trial.data$ProbIntr), 0, num
 #For all groups groups harder trials are more likely to be involved in intransitivities 
 p2 <- ggplot(numbers.trial.data, aes(num.diff, ProbIntr, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Difference between numbers (Difficulty)")+
   ylab("Probability of Intransitivity")
 
-summary(lmer(ProbIntr ~ num.diff * Group + (1|f.id), data = numbers.trial.data))
+summary(lmer(scale(ProbIntr) ~ scale(num.diff) * Group + (1|f.id), data = numbers.trial.data))
 
 #Probability of transitivity stays the same across the task for the numbers task
 p3 <- ggplot(numbers.trial.data, aes(Trialnumber, ProbIntr, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Trial Number")+
   ylab("Probability of Intransitivity")
 
@@ -153,25 +153,26 @@ choice2.trial.data.w.val$val.diff <- abs(choice2.trial.data.w.val$value.left - c
 aggregate(val.diff ~ Group, FUN = var, choice2.trial.data.w.val)
 ggplot(choice2.trial.data.w.val, aes(Group, val.diff))+
   geom_boxplot(width = 0.5)+
-  theme_classic()+
+  theme_bw()+
   ylab("Value difference")
 
 #The easier the decision (the bigger the difference in values) the faster all groups got
 #MTL group was consistently slower at all levels of value difference
 p1 <- ggplot(choice2.trial.data.w.val, aes(val.diff, RT, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Value difference")+
   ylab("Response times")
 #Significant interactions show that the how RTs change with decision difficulty differs by group. Though they all get faster at easier decisions the MTL group is consistently slower
-summary(lmer(RT ~ val.diff * Group + (1|f.id), data = choice2.trial.data.w.val))
+summary(lmer(scale(RT) ~ scale(val.diff) * Group + (1|f.id), data = choice2.trial.data.w.val))
+summary(lmer(scale(RT) ~ poly(val.diff, 2) * Group + (1|f.id), data = choice2.trial.data.w.val))
 
 #Difference in values and intransitivity
 #The harder the decision the more intransitivite triplets it is involved in
-#This graph is deceptive because it suggests that for the MTL group trials that are closer to indifference are involved in more intransitivities but it's not normalized! 
+#This graph is deceptive because it suggests that for the MTL group trials that are closer to indifference are involved in more intransitivities but it's not normalized! (i.e. the trials are involved in more intransitivities but the MTL group makes more intransitivities to begin with, which is why the probability of intransitivity measure below in more descriptive) 
 ggplot(choice2.trial.data.w.val, aes(val.diff, IntransTripleCounted, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Value difference")+
   ylab("Number of Intransitivities Trial is involved in")
 
@@ -193,15 +194,38 @@ ddply(choice2.trial.data.w.val, c("f.id"), summarise, tot = sum(ProbIntr))
 #For the MTL group harder trials (those where the value difference is smaller) are less likely to be involved in intransitivities suggesting that these decisions are not as hard for them because they have problems with retaining value
 p2 <- ggplot(choice2.trial.data.w.val, aes(val.diff, ProbIntr, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Value difference")+
   ylab("Probability of Intransitivity")
 
-summary(lmer(ProbIntr ~ val.diff * Group + (1|f.id), data = choice2.trial.data.w.val))
+summary(lmer(scale(ProbIntr) ~ scale(val.diff) * Group + (1|f.id), data = choice2.trial.data.w.val))
+
+#Try making an graph to convey this point more easily
+summary(choice2.trial.data.w.val$val.diff)
+
+choice2.trial.data.w.val$difficulty.lab <- with(choice2.trial.data.w.val, ifelse(val.diff < 4, "Hard", ifelse(val.diff > 3 & val.diff < 10, "Medium", ifelse(val.diff>= 10, "Easy", NA))))
+
+table(choice2.trial.data.w.val$difficulty.lab, useNA="ifany")
+
+choice2.trial.data.w.val$difficulty.lab <- factor(choice2.trial.data.w.val$difficulty.lab, levels = c("Easy","Medium", "Hard"))
+
+plot.valdiff.df <- cbind(aggregate(ProbIntr ~ difficulty.lab + Group, choice2.trial.data.w.val, mean),
+aggregate(ProbIntr ~ difficulty.lab + Group, choice2.trial.data.w.val, se)[3])
+names(plot.valdiff.df) <- c("Difficulty", "Group", "MeanP", "SEM")
+
+ggplot(plot.valdiff.df, aes(Difficulty, MeanP, group = Group, fill = Group))+
+  geom_bar(stat="identity", position = "dodge")+
+  geom_errorbar(aes(ymin = MeanP-SEM, ymax = MeanP+SEM), position = position_dodge(0.9), width = 0.5)+
+  theme_bw()+
+  xlab("Value difference")+
+  ylab("Probability of Intransitivity")+
+scale_fill_grey(start = 0, end = .9)
+
+ggsave("./TransitivityFigures/CleanFigure4.png", width=6, height=4, dpi=300)
 
 p3 <- ggplot(choice2.trial.data.w.val, aes(Trialnumber, ProbIntr, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   xlab("Trial Number")+
   ylab("Probability of Intransitivity")
 

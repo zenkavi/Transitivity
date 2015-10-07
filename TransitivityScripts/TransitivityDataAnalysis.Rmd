@@ -34,7 +34,7 @@ aggregate(CleanPercentIntr ~ Group+Task, data=both.Intransitive, sd)
 
 ggplot(data = both.Intransitive, aes(x = Group, y = CleanPercentIntr, fill = Task))+
   geom_boxplot()+
-  theme_classic()
+  theme_bw()
 ```
 
 The first thing we could do would be a one-way anova for both tasks.
@@ -56,13 +56,13 @@ The distribution of effect sizes within tasks is not normal for either task. Thi
 ```{r} 
 ggplot(both.Intransitive[both.Intransitive$Task == "numbers",], aes(CleanPercentIntr))+
   geom_histogram()+
-  theme_classic()+
+  theme_bw()+
   ggtitle("Distribution of effect size for numbers task")
 shapiro.test(both.Intransitive[both.Intransitive$Task == "numbers",]$CleanPercentIntr)
 
 ggplot(both.Intransitive[both.Intransitive$Task == "choice",], aes(CleanPercentIntr))+
   geom_histogram()+
-  theme_classic()+
+  theme_bw()+
   ggtitle("Distribution of effect size for choice task")
 shapiro.test(both.Intransitive[both.Intransitive$Task == "choice",]$CleanPercentIntr)
 ```
@@ -104,7 +104,7 @@ bartlett.test(CleanPercentIntr ~ Task, data = both.Intransitive)
 
 ggplot(both.Intransitive, aes(CleanPercentIntr, fill = Task))+
   geom_histogram()+
-  theme_classic()
+  theme_bw()
 ```
 
 **SOLUTION: TRANSFORM DV AND RUN REGRESSIONS**
@@ -122,7 +122,7 @@ bartlett.test(log(CleanPercentIntr + 1) ~ Task, data = both.Intransitive) #even 
 
 ggplot(both.Intransitive, aes(log(CleanPercentIntr + 1), fill = Task))+
   geom_histogram()+
-  theme_classic()
+  theme_bw()
 ```
 
 Step back and think about what you are interested in. First plot the data:
@@ -145,7 +145,7 @@ ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group
   geom_point(aes(shape =Task))+
   geom_line()+
   geom_errorbar(limits, width=0.25)+
-  theme_classic()+
+  theme_bw()+
   ylab("Mean Percent Intransitive")
 
 ```{r eval=FALSE}
@@ -156,7 +156,7 @@ ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group
   geom_errorbar(limits, width=0.25)+
   ylab("Mean Percentage of Intransitivities")+
   xlab("")+
-  theme_classic()+
+  theme_bw()+
   theme(axis.title.y = element_text(face="bold", size = 20),
            axis.text.x  = element_text(face="bold", size = 20),
         legend.text = element_text(size = 20),
@@ -275,15 +275,22 @@ choice2.trial.data$Task <- "choice"
 numbers.trial.data$Task <- "numbers"
 
 RT.df <- rbind(choice2.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")], numbers.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")])
-RT.df$Task <- as.factor(RT.df$Task)
+RT.df$Task <- factor(RT.df$Task, levels = c("choice", "numbers"), labels = c("Value-based", "Perceptual"))
 
 ggplot(data = RT.df[RT.df$RT>0,], aes(x = Trialnumber, y = RT, group = Group, col = Group))+
   geom_smooth(method = "loess")+
-  theme_classic()+
+  theme_bw()+
   facet_grid(~Task)+
-  xlab("Trial number")
+  xlab("Trial number")+
+  ylab("Response time")
 
-rt.lmer1 <- lmerTest::lmer(RT ~ Group*Task*Trialnumber + (1|f.id), data = RT.df[RT.df$RT>0,])
+ggsave("./TransitivityFigures/CleanFigureS1.png", width=7, height=4, dpi=300)
+
+aggregate(RT ~ Task, data = RT.df[RT.df$RT>0,], FUN = mean)
+aggregate(RT ~ Task, data = RT.df[RT.df$RT>0,], FUN = sd)
+aggregate(RT ~ Group + Task, data = RT.df[RT.df$RT>0,], FUN = mean)
+
+rt.lmer1 <- lmerTest::lmer(scale(RT) ~ Group*Task*scale(Trialnumber) + (1|f.id), data = RT.df[RT.df$RT>0,])
 
 #Three way interaction is sig better..
 # rt.lmer2 <- lmerTest::lmer(RT ~ Group*Task + Trialnumber + (1|f.id), data = RT.df[RT.df$RT>0,])
@@ -297,14 +304,12 @@ rt.lmer1 <- lmerTest::lmer(RT ~ Group*Task*Trialnumber + (1|f.id), data = RT.df[
 
 summary(rt.lmer1)
 
-aggregate(RT ~ Group + Task, data = RT.df[RT.df$RT>0,], FUN = mean)
-
 rm(RT.df)
+
+summary(lmerTest::lmer(scale(RT) ~ Group* + (1|f.id), data = choice2.trial.data[choice2.trial.data$RT>0,]))
 ```
 
 ### Intransitivities by groups
-
-(see above for rest of the stats in this section (e.g. model comparison for lmer and Bartlett test))
 
 ```{r}
 summary(choice2.trial.data$IntransTripleCounted)
@@ -312,6 +317,29 @@ sd(choice2.trial.data$IntransTripleCounted)
 
 summary(both.Intransitive$CleanIntr[both.Intransitive$Task == "choice"])
 sd(both.Intransitive$CleanIntr[both.Intransitive$Task == "choice"])
+
+#Change the contrasts, make them orthogonal
+both.Intransitive.contrast <- both.Intransitive
+contrasts(both.Intransitive.contrast$Group) <- cbind(c(-1,1, 0), c(-1, -1, 2))
+contrasts(both.Intransitive.contrast$Task) <- c(-1, 1)
+
+contrasts(both.Intransitive.contrast$Task)
+contrasts(both.Intransitive.contrast$Group)
+
+gm3.con <- lm(log(CleanPercentIntr+1) ~ Group*Task, both.Intransitive.contrast) 
+summary(gm3.con)
+
+gm3.lmer.con <- lmerTest::lmer(log(CleanPercentIntr+1) ~ Group*Task + (1|f.id), both.Intransitive.contrast, REML = F)
+
+#Random intercepts necessary? Yes.
+summary(gm3.lmer.con)
+
+x2 = -2*logLik(gm3.con) +2*logLik(gm3.lmer.con)
+x2
+pchisq(x2, df=1, lower.tail=F)
+
+#Why we need logs:
+bartlett.test(log(CleanPercentIntr + 1) ~ Task, data = both.Intransitive) #even less marginal
 ```
 
 ### Preference for side of computer screen
@@ -339,15 +367,15 @@ ggplot(data = plot.left.df, aes(x = Group, y=MeanChoice.left1.right0, group = Ta
   geom_point(aes(shape =Task))+
   geom_line()+
   geom_errorbar(limits, width=0.25)+
-  theme_classic()+
+  theme_bw()+
   ylab("Mean Percent Left")
 
 summary(aov(Choice.left1.right0 ~ Group, data=left.df[left.df$RT>0 & left.df$Task == "choice",]))
 
 pairwise.t.test(left.df[left.df$RT>0 & left.df$Task == "choice",]$Choice.left1.right0, left.df[left.df$RT>0 & left.df$Task == "choice",]$Group, p.adjust = "bonferroni")
 
-left.lmer1 <- glmer(Choice.left1.right0 ~ Group*Task + (1|f.id), data = left.df[left.df$RT>0,], family = binomial)
-summary(left.lmer1)
+# left.lmer1 <- glmer(Choice.left1.right0 ~ Group*Task + (1|f.id), data = left.df[left.df$RT>0,], family = binomial)
+# summary(left.lmer1)
 
 left.lmer2 <- lmerTest::lmer(IntransTripleCounted ~ Choice.left1.right0*Group + (1|f.id), data = left.df[left.df$RT>0 & left.df$Task == "choice",])
 summary(left.lmer2)
@@ -358,23 +386,23 @@ summary(left.lmer3)
 ### Alternative explanations of (in)transitivity
 
 ```{r}
-mem.lmer <- lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + c.Trialnumber*c.TrialQuad*Group, data=choice2.trial.data)
+mem.lmer <- lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + scale(c.Trialnumber)*scale(c.TrialQuad)*Group, data=choice2.trial.data)
 
 summary(mem.lmer)
 
 aggregate(IntransTripleCounted ~ Group, data = choice2.trial.data, FUN=mean)
 
-#Plot S1
+#Plot S2
 ggplot(data=choice2.trial.data, aes(x = Trialnumber, y = IntransTripleCounted, group = Group, col = Group))+
   geom_smooth(method = "loess") +
-  theme_classic()+
-  ylab("Number of Times involved in Intransitivity") +
-  xlab("Trial Number")
+  theme_bw()+
+  ylab("Number of Times a Choice was \n involved in Intransitivity") +
+  xlab("Order choice was made")
+
+ggsave("./TransitivityFigures/CleanFigureS2.png", width=6, height=4, dpi=300)
 ```
 
 ### Intransitivities and response times
-
-Wait for mediation.
 
 ```{r eval=FALSE}
 choice2.trial.data$RT.quad[choice2.trial.data$RT>0] <- choice2.trial.data$RT^2[choice2.trial.data$RT>0]
@@ -383,8 +411,8 @@ choice2.trial.data$RT.c <- choice2.trial.data$RT - mean(choice2.trial.data$RT[ch
 
 choice2.trial.data$RT.quad.c <- choice2.trial.data$RT.quad - mean(choice2.trial.data$RT.quad)
 
-a4 <- lmerTest::lmer(IntransTripleCounted ~ RT.c + RT.quad.c + Group + RT.c:Group + (1 | f.id), data=choice2.trial.data)
-summary(a4.lmerTest)
+a4 <- lmerTest::lmer(IntransTripleCounted ~ scale(RT.c) + Group + scale(RT.c):Group + (1|f.id), data=choice2.trial.data)
+summary(a4)
 
 a2 <- lmerTest::lmer(IntransTripleCounted ~ Group + (1 | f.id), data=choice2.trial.data)
 summary(a2)
@@ -393,26 +421,16 @@ anova(a4, a2)
 
 # Don't think this plot is good for our claim on speed-accuracy trade-off
 ggplot(data = choice2.trial.data[choice2.trial.data$RT>500 & choice2.trial.data$RT<5001,], aes(x=RT, y = IntransTripleCounted, group = Group, col = Group))+
-  theme_classic()+
+  theme_bw()+
   geom_smooth(method = "loess")+
   ylab("Number of Times Involved in Intransitivitiy")+
   xlim(0,5000)
 
 ggplot(data = choice2.trial.data[choice2.trial.data$RT>500 & choice2.trial.data$RT<5001,], aes(x=RT, y = IntransTripleCounted))+
-  theme_classic()+
+  theme_bw()+
   geom_smooth(method = "loess", color = "black")+
   ylab("Number of Times Involved in Intransitivitiy")+
   xlim(1000,5000)
-
-#Mediation?
-med.lmer.c <-  lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + Group +Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
-summary(med.lmer.c)
-
-med.lmer.a <- lmerTest::lmer(RT ~ (1|f.id) + Group + Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
-summary(med.lmer.a)
-
-med.lmer.b <- lmerTest::lmer(IntransTripleCounted ~ (1|f.id) + Group + RT + Trialnumber, data=choice2.trial.data[choice2.trial.data$RT>0,])
-summary(med.lmer.b)
 
 ```
 

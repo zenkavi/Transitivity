@@ -1,0 +1,73 @@
+---
+title: "TransitivityCleanFigures"
+author: "Zeynep Enkavi"
+date: "October 3, 2015"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(plyr)
+library(dplyr)
+```
+
+```{r}
+load("~/Dropbox/CDS/Transitivity/TransitivityOutputs/TransitivityTalkPlotWorkspace100315.RData")
+```
+
+Figure 2:
+
+```{r}
+limits <- aes(ymax = plot.Intransitive.df$eb.high, ymin=plot.Intransitive.df$eb.low)
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task))+
+  geom_point(aes(shape = Task))+
+  geom_line(aes(linetype = Task))+
+  geom_errorbar(limits, width=0.25)+
+  ylab("Mean Percentage of Intransitivities")+
+  xlab("")+
+  theme_bw()+
+  theme(axis.title.y = element_text(face="bold", size = 14),
+           axis.text.x  = element_text(face="bold", size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14))+
+  scale_shape_discrete(breaks = c("choice", "numbers"),
+                       labels = c("Value-based", "Numbers"))+
+    scale_linetype_discrete(breaks = c("choice", "numbers"),
+                       labels = c("Value-based", "Numbers"))
+
+
+ggsave("./TransitivityFigures/CleanFigure2.png", width=6, height=4, dpi=300)
+```
+
+
+Figure 3:
+```{r}
+library(xlsx)
+symmetry.data <- read.xlsx("./TransitivityData/Symmetry_index_zeynep.xlsx", 1)
+
+choice.Intransitive <- both.Intransitive[both.Intransitive$Task == "choice",]
+choice.Intransitive$f.id <- as.numeric(as.character(choice.Intransitive$f.id))
+
+symmetry.data <- merge(symmetry.data, choice.Intransitive[, c("f.id", "CleanPercentIntr")], by.x = "ID", by.y = "f.id", all.x = T)
+
+library(Hmisc)
+
+spearman.test(symmetry.data$Symmetry.index, symmetry.data$CleanPercentIntr)
+
+cor(symmetry.data$Symmetry.index, symmetry.data$CleanPercentIntr, method = "spearman", use = "complete.obs")
+
+ggplot(symmetry.data, aes(Symmetry.index, CleanPercentIntr))+
+  geom_point()+
+  geom_smooth(method = "lm", color = "black", alpha = 0.1, linetype = "dashed")+
+  theme_bw()+
+  ylab("Percentage of Intransitve Choice")+
+  xlab("Compromised Hippocampal Ratio")+
+  theme(axis.title.y = element_text(face="bold", size = 14),
+           axis.title.x  = element_text(face="bold", size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14))
+
+ggsave("./TransitivityFigures/CleanFigure3.png", width=4, height=4, dpi=300)
+```
