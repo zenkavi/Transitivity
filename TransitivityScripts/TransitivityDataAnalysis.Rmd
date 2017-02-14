@@ -148,6 +148,25 @@ ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group
   theme_bw()+
   ylab("Mean Percent Intransitive")
 
+
+ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task))+
+  geom_point(aes(shape = Task))+
+  geom_line(aes(linetype = Task))+
+  geom_errorbar(limits, width=0.25)+
+  ylab("Mean Percentage of Intransitivities")+
+  xlab("")+
+  theme_bw()+
+  theme(axis.title.y = element_text(face="bold", size = 14),
+        axis.text.x  = element_text(face="bold", size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14))+
+  scale_shape_discrete(breaks = c("choice", "numbers"),
+                       labels = c("Value-based", "Numbers"))+
+  scale_linetype_discrete(breaks = c("choice", "numbers"),
+                          labels = c("Value-based", "Numbers"))
+ggsave("./TransitivityFigures/CleanFigure2.png", width=6, height=4, dpi=300)
+
+
 ```{r eval=FALSE}
 #For poster
 ggplot(data = plot.Intransitive.df, aes(x = Group, y=MeanCleanPercentIntr, group = Task))+
@@ -265,6 +284,37 @@ summary(gm3.lmer.con.sn)
 
 Running a linear mixed model with orthogonal contrasts is the most appropriate analysis and reveals a significant group task interaction in the percentage of intransitivities. Accordingly the MTL group had a higher percentage of intransitivities in the choice task than the numbers task compared to both control groups, while the difference between the percentage of intransitivities did not differ between tasks between the health controls and the ETL group.
 
+Group differences in intransitivies
+--------------------------------------------------------
+
+```{r}
+symmetry.data <- read.xlsx("./TransitivityData/Symmetry_index_zeynep.xlsx", 1)
+
+symmetry.data <- merge(symmetry.data, choice.Intransitive[, c("f.id", "CleanPercentIntr")], by.x = "ID", by.y = "f.id", all.x = T)
+
+View(symmetry.data)
+
+cor(symmetry.data$Symmetry.index, symmetry.data$CleanPercentIntr, method = "spearman", use = "complete.obs")
+
+cor(symmetry.data$Symmetry.index, symmetry.data$CleanPercentIntr, method = "spearman")
+
+spearman.test(symmetry.data$Symmetry.index, symmetry.data$CleanPercentIntr)
+
+ggplot(symmetry.data, aes(Symmetry.index, CleanPercentIntr))+
+  geom_point()+
+  geom_smooth(method = "lm", color = "black", alpha = 0.1, linetype = "dashed")+
+  theme_bw()+
+  ylab("Percentage of Intransitve Choice")+
+  xlab("Compromised Hippocampal Ratio")+
+  theme(axis.title.y = element_text(face="bold", size = 14),
+        axis.title.x  = element_text(face="bold", size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14))
+
+ggsave("./TransitivityFigures/CleanFigure3.png", width=4, height=4, dpi=300)
+
+```
+
 SOM Analyses
 ------------------------------------------------------
 
@@ -277,8 +327,8 @@ numbers.trial.data$Task <- "numbers"
 RT.df <- rbind(choice2.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")], numbers.trial.data[,c("f.id", "Group", "RT", "Task", "Trialnumber", "IntransTripleCounted")])
 RT.df$Task <- factor(RT.df$Task, levels = c("choice", "numbers"), labels = c("Value-based", "Perceptual"))
 
-ggplot(data = RT.df[RT.df$RT>0,], aes(x = Trialnumber, y = RT, group = Group, col = Group))+
-  geom_smooth(method = "loess")+
+ggplot(data = RT.df[RT.df$RT>0,], aes(x = Trialnumber, y = RT, group = Group, linetype = Group))+
+  geom_smooth(method = "lm", color = "black")+
   theme_bw()+
   facet_grid(~Task)+
   xlab("Trial number")+
@@ -393,8 +443,8 @@ summary(mem.lmer)
 aggregate(IntransTripleCounted ~ Group, data = choice2.trial.data, FUN=mean)
 
 #Plot S2
-ggplot(data=choice2.trial.data, aes(x = Trialnumber, y = IntransTripleCounted, group = Group, col = Group))+
-  geom_smooth(method = "loess") +
+ggplot(data=choice2.trial.data, aes(x = Trialnumber, y = IntransTripleCounted, group = Group, linetype = Group))+
+  geom_smooth(method = "lm", color = "black") +
   theme_bw()+
   ylab("Number of Times a Choice was \n involved in Intransitivity") +
   xlab("Order choice was made")

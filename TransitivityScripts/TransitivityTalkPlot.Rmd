@@ -223,6 +223,18 @@ scale_fill_grey(start = 0, end = .9)
 
 ggsave("./TransitivityFigures/CleanFigure4.png", width=6, height=4, dpi=300)
 
+plot.valdiff.rt.df <- cbind(aggregate(RT ~ difficulty.lab + Group, choice2.trial.data.w.val, mean),
+aggregate(RT ~ difficulty.lab + Group, choice2.trial.data.w.val, se)[3])
+names(plot.valdiff.rt.df) <- c("Difficulty", "Group", "MeanRT", "SEM")
+
+ggplot(plot.valdiff.rt.df, aes(Difficulty, MeanRT, group = Group, fill = Group))+
+  geom_bar(stat="identity", position = "dodge")+
+  geom_errorbar(aes(ymin = MeanRT-SEM, ymax = MeanRT+SEM), position = position_dodge(0.9), width = 0.5)+
+  theme_bw()+
+  xlab("Value difference")+
+  ylab("Response Time")+
+scale_fill_grey(start = 0, end = .9)
+
 p3 <- ggplot(choice2.trial.data.w.val, aes(Trialnumber, ProbIntr, group = Group, col = Group))+
   geom_smooth(method = "loess")+
   theme_bw()+
@@ -240,4 +252,83 @@ p4 <- grid.arrange(arrangeGrob(p1 + theme(legend.position="none"),
              legend, nrow=2,heights=c(10, 1),
              main = "Relationship between decision difficulty, RT and intransitivity in preference task")
 rm(g, legend)
+```
+
+```{r}
+#IntransTripleCounted counts how many intransitive triplets a trial was involved in
+#Each trial is part of ?? triplets
+#Get back to this in a moment
+
+#Exploring the distribution of value distributions for each group for now
+#The idea is: if the value representation is unstable they will not be choosing the bounty over other bars every time even if that is their true preference
+#So if we estimate value by counting how many times it was chosen over other bars then we will underestimate the value of most preferred bars and overestimate that of least preferred ones
+#So the value differences for the MTL group should be smaller overall
+
+#Two ways of visualizing this:
+#Either by looking at the whole distribution of the value differences for each group (the earlier peak for the MTL group shows that all decisions were harder)
+ggplot(choice2.trial.data.w.val, aes(val.diff, group = Group, fill = Group))+
+  geom_density(alpha = 0.5)+
+  theme_bw()
+
+#Or my comparing the means (which is an accurate representation of the anova that follows): The C and ETL groups do not differ from each other while the MTL group is significantly lower than both
+plot.valdiff.dist.df <- cbind(aggregate(val.diff ~ Group, choice2.trial.data.w.val, mean),
+aggregate(val.diff ~ Group, choice2.trial.data.w.val, se)[2])
+names(plot.valdiff.dist.df) <- c("Group", "mean.val.diff","sem.val.diff")
+
+ggplot(plot.valdiff.dist.df, aes(Group, mean.val.diff))+
+  geom_bar(stat = "identity", position = "dodge", width = 0.5, fill = "gray")+
+  geom_errorbar(aes(ymin = mean.val.diff - sem.val.diff, ymax = mean.val.diff + sem.val.diff), position = position_dodge(0.9), width = 0.25)+
+  theme_bw()
+
+#Anova and pairwise t-test showing this group difference in distribution of value differences
+summary(aov(val.diff ~ Group, data = choice2.trial.data.w.val))
+with(choice2.trial.data.w.val, pairwise.t.test(val.diff, Group, p.adjust.method = "bonf"))
+
+#So all the decisions are "harder" for the MTL group because the value representation is not stable as demonstrated by the smaller variance of the number of times each bar is chosen 
+
+#SIDE NOTE:What would the variance be if they chose perfectly?
+
+#Moreover the decrease in RT by value difference is not the same for each group
+ggplot(choice2.trial.data.w.val, aes(val.diff, RT, group = Group, col = Group))+
+  geom_smooth(method="lm")+
+  theme_bw()
+
+#Should I standardize the value difference distribution for this (since they differ by group)? 
+#Scaling val.diff for each individual
+choice2.trial.data.w.val <- ddply(choice2.trial.data.w.val, "f.id", mutate, c.val.diff = scale(val.diff))
+
+#Now the means and variances for all groups are the same
+summary(aov(c.val.diff ~ Group, data = choice2.trial.data.w.val))
+
+#As seen by the distribution of the value differences as well
+ggplot(choice2.trial.data.w.val, aes(c.val.diff, group = Group, fill = Group))+
+  geom_density(alpha = 0.5)+
+  theme_bw()
+
+#Looking at how response times change with standardized value differences
+ggplot(choice2.trial.data.w.val, aes(c.val.diff, RT, group = Group, col = Group))+
+  geom_smooth(method = "lm")+
+  theme_bw()
+
+summary(lm(scale(RT) ~ c.val.diff * Group, data = choice2.trial.data.w.val))
+
+#Is there a difference between the groups above and beyond the effect of "value difference"
+choice2.trial.data.w.val$RT.val.diff.resid <- resid(lm(scale(RT) ~ c.val.diff, data=choice2.trial.data.w.val))
+
+#If you take the effect of value diff out MTL is sig higher...(to be cont)
+summary(lm(RT.val.diff.resid ~ Group, data = choice2.trial.data.w.val))
+
+#NOT USEFUL? Does the variance of val.diff correlate significantly with the number of intransitivities (i.e. the more intransitivities the smaller the variance)
+#Scatter plot
+plot.valdiff.var <- ddply(choice2.trial.data.w.val, c("f.id", "Group", "CleanIntr"), summarise, 
+      val.diff.spread = var(val.diff))
+
+ggplot(plot.valdiff.var[plot.valdiff.var$CleanIntr<110,], aes(CleanIntr, val.diff.spread, col = Group, group = Group))+
+  #geom_point()+
+  geom_smooth(method="lm")+
+  theme_classic()
+
+summary(aov(val.diff.spread ~ Group*CleanIntr, data = plot.valdiff.var))
+summary(lm(val.diff.spread ~ Group*CleanIntr, data = plot.valdiff.var))
+
 ```
